@@ -14,8 +14,8 @@ import (
 func main() {
 	data := `package main
 
-func foo() int {
-	return 0
+func foo(a int) int {
+	return 10 + (2 - 3) / 2
 }
 
 func main() {

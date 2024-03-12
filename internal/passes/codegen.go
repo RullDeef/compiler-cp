@@ -7,6 +7,7 @@ import (
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
+	"github.com/llir/llvm/ir/enum"
 	"github.com/llir/llvm/ir/types"
 	"github.com/llir/llvm/ir/value"
 )
@@ -92,7 +93,6 @@ func (v *CodeGenVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interfac
 		v.currBlock.NewRet(nil)
 	} else {
 		exprs = append(exprs, v.VisitExpression(ctx.ExpressionList().Expression(0).(*parser.ExpressionContext)).(value.Value))
-
 		v.currBlock.NewRet(exprs[0])
 	}
 	return nil
@@ -101,6 +101,50 @@ func (v *CodeGenVisitor) VisitReturnStmt(ctx *parser.ReturnStmtContext) interfac
 func (v *CodeGenVisitor) VisitExpression(ctx *parser.ExpressionContext) interface{} {
 	if ctx.PrimaryExpr() != nil {
 		return v.VisitPrimaryExpr(ctx.PrimaryExpr().(*parser.PrimaryExprContext))
+	} else if ctx.GetUnary_op() != nil {
+		return v.VisitUnaryExpr(ctx)
+	} else {
+		left := v.VisitExpression(ctx.Expression(0).(*parser.ExpressionContext)).(value.Value)
+		right := v.VisitExpression(ctx.Expression(1).(*parser.ExpressionContext)).(value.Value)
+		if ctx.GetMul_op() != nil {
+			if ctx.STAR() != nil {
+				return v.currBlock.NewMul(left, right)
+			} else if ctx.DIV() != nil {
+				return v.currBlock.NewSDiv(left, right)
+			} else {
+				panic(fmt.Errorf("unimplemented instruction: %s", ctx.GetText()))
+			}
+		} else if ctx.GetAdd_op() != nil {
+			if ctx.PLUS() != nil {
+				return v.currBlock.NewAdd(left, right)
+			} else if ctx.MINUS() != nil {
+				return v.currBlock.NewSub(left, right)
+			} else {
+				panic(fmt.Errorf("unimplemented instruction: %s", ctx.GetText()))
+			}
+		} else if ctx.GetRel_op() != nil {
+			if ctx.EQUALS() != nil {
+				return v.currBlock.NewICmp(enum.IPredEQ, left, right)
+			} else if ctx.NOT_EQUALS() != nil {
+				return v.currBlock.NewICmp(enum.IPredNE, left, right)
+			} else if ctx.LESS() != nil {
+				return v.currBlock.NewICmp(enum.IPredSLT, left, right)
+			} else if ctx.LESS_OR_EQUALS() != nil {
+				return v.currBlock.NewICmp(enum.IPredSLE, left, right)
+			} else if ctx.GREATER() != nil {
+				return v.currBlock.NewICmp(enum.IPredSGT, left, right)
+			} else if ctx.GREATER_OR_EQUALS() != nil {
+				return v.currBlock.NewICmp(enum.IPredSGE, left, right)
+			} else {
+				panic("must never happen")
+			}
+		} else if ctx.LOGICAL_AND() != nil {
+			v.currBlock.NewAnd(left, right)
+		} else if ctx.LOGICAL_OR() != nil {
+			v.currBlock.NewOr(left, right)
+		} else {
+			panic("must never happen")
+		}
 	}
 	panic("other types of expression not implemented")
 }
@@ -144,6 +188,10 @@ func (v *CodeGenVisitor) VisitBasicLit(ctx *parser.BasicLitContext) interface{} 
 	}
 
 	panic("not implemented basic lit")
+}
+
+func (v *CodeGenVisitor) VisitUnaryExpr(ctx *parser.ExpressionContext) value.Value {
+	panic("unary expression not implemented")
 }
 
 func goTypeToIR(goType string) (types.Type, error) {
