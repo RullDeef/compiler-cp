@@ -9,7 +9,8 @@ type PackageData struct {
 	PackageName string
 	Imports     []ImportAlias
 	//Constants   []ConstantDecl
-	Functions []FunctionDecl
+	Functions map[string]FunctionDecl
+	Methods   map[string]map[string]FunctionDecl // receiver type -> method name -> decl
 }
 type ImportAlias struct {
 	Path  string
@@ -41,7 +42,10 @@ type PackageVisitor struct {
 
 func NewPackageVisitor() *PackageVisitor {
 	return &PackageVisitor{
-		pdata: &PackageData{},
+		pdata: &PackageData{
+			Functions: make(map[string]FunctionDecl),
+			Methods:   make(map[string]map[string]FunctionDecl),
+		},
 	}
 }
 
@@ -51,12 +55,22 @@ func (v *PackageVisitor) VisitSourceFile(ctx *parser.SourceFileContext) interfac
 		v.VisitImportDecl(child.(*parser.ImportDeclContext))
 	}
 	for _, child := range ctx.AllFunctionDecl() {
-		funDec := v.VisitFunctionDecl(child.(*parser.FunctionDeclContext))
-		v.pdata.Functions = append(v.pdata.Functions, funDec.(FunctionDecl))
+		funDec := v.VisitFunctionDecl(child.(*parser.FunctionDeclContext)).(FunctionDecl)
+		if _, ok := v.pdata.Functions[funDec.Name]; ok {
+			panic("multiple functions with same name!")
+		}
+		v.pdata.Functions[funDec.Name] = funDec
 	}
 	for _, child := range ctx.AllMethodDecl() {
-		funDec := v.VisitMethodDecl(child.(*parser.MethodDeclContext))
-		v.pdata.Functions = append(v.pdata.Functions, funDec.(FunctionDecl))
+		funDec := v.VisitMethodDecl(child.(*parser.MethodDeclContext)).(FunctionDecl)
+		if _, ok := v.pdata.Functions[funDec.Name]; ok {
+			// TODO: does not apply to methods
+			panic("multiple methods with same name!")
+		}
+		if _, ok := v.pdata.Methods[funDec.Receiver.Type]; !ok {
+			v.pdata.Methods[funDec.Receiver.Type] = make(map[string]FunctionDecl)
+		}
+		v.pdata.Methods[funDec.Receiver.Type][funDec.Name] = funDec
 	}
 	return v.pdata
 }
