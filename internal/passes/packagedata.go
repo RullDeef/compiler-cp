@@ -35,13 +35,14 @@ type TypedName struct {
 	Elipsised bool
 }
 
-type PackageVisitor struct {
-	parser.BaseGoParserVisitor
+type PackageListener struct {
+	parser.BaseGoParserListener
 	pdata *PackageData
 }
 
-func NewPackageVisitor() *PackageVisitor {
-	return &PackageVisitor{
+func NewPackageListener() *PackageListener {
+	return &PackageListener{
+		BaseGoParserListener: parser.BaseGoParserListener{},
 		pdata: &PackageData{
 			Functions: make(map[string]FunctionDecl),
 			Methods:   make(map[string]map[string]FunctionDecl),
@@ -49,45 +50,15 @@ func NewPackageVisitor() *PackageVisitor {
 	}
 }
 
-func (v *PackageVisitor) VisitSourceFile(ctx *parser.SourceFileContext) interface{} {
-	v.VisitPackageClause(ctx.PackageClause().(*parser.PackageClauseContext))
-	for _, child := range ctx.AllImportDecl() {
-		v.VisitImportDecl(child.(*parser.ImportDeclContext))
-	}
-	for _, child := range ctx.AllFunctionDecl() {
-		funDec := v.VisitFunctionDecl(child.(*parser.FunctionDeclContext)).(FunctionDecl)
-		if _, ok := v.pdata.Functions[funDec.Name]; ok {
-			panic("multiple functions with same name!")
-		}
-		v.pdata.Functions[funDec.Name] = funDec
-	}
-	for _, child := range ctx.AllMethodDecl() {
-		funDec := v.VisitMethodDecl(child.(*parser.MethodDeclContext)).(FunctionDecl)
-		if _, ok := v.pdata.Functions[funDec.Name]; ok {
-			// TODO: does not apply to methods
-			panic("multiple methods with same name!")
-		}
-		if _, ok := v.pdata.Methods[funDec.Receiver.Type]; !ok {
-			v.pdata.Methods[funDec.Receiver.Type] = make(map[string]FunctionDecl)
-		}
-		v.pdata.Methods[funDec.Receiver.Type][funDec.Name] = funDec
-	}
+func (v *PackageListener) PackageData() *PackageData {
 	return v.pdata
 }
 
-func (v *PackageVisitor) VisitPackageClause(ctx *parser.PackageClauseContext) interface{} {
+func (v *PackageListener) EnterPackageClause(ctx *parser.PackageClauseContext) {
 	v.pdata.PackageName = ctx.GetPackageName().GetText()
-	return nil
 }
 
-func (v *PackageVisitor) VisitImportDecl(ctx *parser.ImportDeclContext) interface{} {
-	for _, spec := range ctx.AllImportSpec() {
-		v.VisitImportSpec(spec.(*parser.ImportSpecContext))
-	}
-	return nil
-}
-
-func (v *PackageVisitor) VisitImportSpec(ctx *parser.ImportSpecContext) interface{} {
+func (v *PackageListener) EnterImportSpec(ctx *parser.ImportSpecContext) {
 	path := strings.Join(strings.Split(ctx.ImportPath().GetText(), "\""), "")
 	alias := path
 	if ctx.GetAlias() != nil {
@@ -97,17 +68,16 @@ func (v *PackageVisitor) VisitImportSpec(ctx *parser.ImportSpecContext) interfac
 		Path:  path,
 		Alias: alias,
 	})
-	return v.VisitChildren(ctx)
 }
 
-func (v *PackageVisitor) VisitFunctionDecl(ctx *parser.FunctionDeclContext) interface{} {
-	fundec := v.VisitSignature(ctx.Signature().(*parser.SignatureContext)).(FunctionDecl)
+func (v *PackageListener) EnterFunctionDecl(ctx *parser.FunctionDeclContext) {
+	fundec := v.ParseSignature(ctx.Signature().(*parser.SignatureContext))
 	fundec.Name = ctx.IDENTIFIER().GetText()
-	return fundec
+	v.pdata.Functions[fundec.Name] = fundec
 }
 
-func (v *PackageVisitor) VisitMethodDecl(ctx *parser.MethodDeclContext) interface{} {
-	fundec := v.VisitSignature(ctx.Signature().(*parser.SignatureContext)).(FunctionDecl)
+func (v *PackageListener) EnterMethodDecl(ctx *parser.MethodDeclContext) {
+	fundec := v.ParseSignature(ctx.Signature())
 	fundec.Name = ctx.IDENTIFIER().GetText()
 	// parse receiver
 	rDecl := ctx.Receiver().Parameters().ParameterDecl(0)
@@ -117,12 +87,15 @@ func (v *PackageVisitor) VisitMethodDecl(ctx *parser.MethodDeclContext) interfac
 	if rDecl.IdentifierList() != nil {
 		fundec.Receiver.Name = rDecl.IdentifierList().IDENTIFIER(0).GetText()
 	}
-	return fundec
+	if _, ok := v.pdata.Methods[fundec.Receiver.Type]; !ok {
+		v.pdata.Methods[fundec.Receiver.Type] = make(map[string]FunctionDecl)
+	}
+	v.pdata.Methods[fundec.Receiver.Type][fundec.Name] = fundec
 }
 
-func (v *PackageVisitor) VisitSignature(ctx *parser.SignatureContext) interface{} {
+func (v *PackageListener) ParseSignature(ctx parser.ISignatureContext) FunctionDecl {
 	fundec := FunctionDecl{
-		ArgTypes: v.VisitParameters(ctx.Parameters().(*parser.ParametersContext)).([]TypedName),
+		ArgTypes: v.ParseParameters(ctx.Parameters()),
 	}
 	if ctx.Result() != nil {
 		fundec.ReturnTypes = append(fundec.ReturnTypes, TypedName{
@@ -132,16 +105,15 @@ func (v *PackageVisitor) VisitSignature(ctx *parser.SignatureContext) interface{
 	return fundec
 }
 
-func (v *PackageVisitor) VisitParameters(ctx *parser.ParametersContext) interface{} {
+func (v *PackageListener) ParseParameters(ctx parser.IParametersContext) []TypedName {
 	paramList := []TypedName{}
 	for _, child := range ctx.AllParameterDecl() {
-		paramList = append(paramList,
-			v.VisitParameterDecl(child.(*parser.ParameterDeclContext)).([]TypedName)...)
+		paramList = append(paramList, v.ParseParameterDecl(child)...)
 	}
 	return paramList
 }
 
-func (v PackageVisitor) VisitParameterDecl(ctx *parser.ParameterDeclContext) interface{} {
+func (v PackageListener) ParseParameterDecl(ctx parser.IParameterDeclContext) []TypedName {
 	type_ := ctx.Type_().TypeName().GetText()
 	params := []TypedName{}
 	for _, ident := range ctx.IdentifierList().AllIDENTIFIER() {

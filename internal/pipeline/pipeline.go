@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"gocomp/internal/parser"
 	"gocomp/internal/passes"
+
+	"github.com/antlr4-go/antlr/v4"
 )
 
 func ProcessTree(ctx parser.ISourceFileContext) interface{} {
-	pass1 := passes.NewPackageVisitor()
-	result := ctx.Accept(pass1).(*passes.PackageData)
+	pass1 := passes.NewPackageListener()
+	antlr.ParseTreeWalkerDefault.Walk(pass1, ctx)
+	result := pass1.PackageData()
 
 	ast1, _ := json.MarshalIndent(result, "    ", "  ")
 	fmt.Printf("package data:\n%s\n", ast1)
