@@ -154,6 +154,8 @@ func (v *CodeGenVisitor) VisitSimpleStatement(block *ir.Block, ctx parser.ISimpl
 	switch s := ctx.GetChild(0).(type) {
 	case parser.IAssignmentContext:
 		return v.VisitAssignment(block, s)
+	case parser.IShortVarDeclContext:
+		return v.VisitShortVarDecl(block, s)
 	default:
 		return nil, fmt.Errorf("unimplemented simple statement")
 	}
@@ -179,6 +181,30 @@ func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignment
 		block.NewStore(val.Value, varDef.Value)
 	}
 	return nil, nil
+}
+
+func (v *CodeGenVisitor) VisitShortVarDecl(block *ir.Block, ctx parser.IShortVarDeclContext) ([]*ir.Block, error) {
+	varName := ctx.IdentifierList().IDENTIFIER(0).GetText()
+	val, newBlocks, err := v.genCtx.GenerateExpr(
+		block,
+		ctx.ExpressionList().Expression(0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if newBlocks != nil {
+		block = newBlocks[len(newBlocks)-1]
+	}
+	if _, ok := v.genCtx.Vars.vars[varName]; ok {
+		return nil, fmt.Errorf("variable already defined")
+	}
+	memRef := block.NewAlloca(val.Value.Type())
+	block.NewStore(val.Value, memRef)
+	v.genCtx.Vars.vars[varName] = &typesystem.TypedValue{
+		Type:  val.Type,
+		Value: memRef,
+	}
+	return newBlocks, nil
 }
 
 func (v *CodeGenVisitor) VisitReturnStmt(block *ir.Block, ctx parser.IReturnStmtContext) ([]*ir.Block, error) {

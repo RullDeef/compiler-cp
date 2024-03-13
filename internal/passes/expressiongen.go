@@ -18,6 +18,7 @@ func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionCo
 	} else if ctx.GetUnary_op() != nil {
 		return genCtx.GenerateUnaryExpr(block, ctx)
 	}
+	//TODO: lazy logical expression evaluation
 	left, leftBlocks, err := genCtx.GenerateExpr(block, ctx.Expression(0))
 	_ = leftBlocks
 	if err != nil {
