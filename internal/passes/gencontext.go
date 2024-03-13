@@ -28,6 +28,11 @@ func NewGenContext(pdata *PackageData) *GenContext {
 		Vars:        NewVarContext(nil),
 	}
 
+	// populate global functions (like printf)
+	fun := ir.NewFunc("printf", types.I32, ir.NewParam("format", types.I8Ptr))
+	fun.Sig.Variadic = true
+	ctx.Funcs["printf"] = fun
+
 	// generate references to functions first
 	for _, fn := range pdata.Functions {
 		irFun := genFunDef(fn)
