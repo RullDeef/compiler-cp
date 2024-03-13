@@ -110,6 +110,15 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 			Value: constant.NewInt(types.I32, int64(intVal)),
 			Type:  typesystem.Int64,
 		}, nil, nil
+	} else if ctx.FLOAT_LIT() != nil {
+		fltVal, err := strconv.ParseFloat(ctx.FLOAT_LIT().GetText(), 64)
+		if err != nil {
+			panic(fmt.Errorf("failed to convert to float64: %w", err))
+		}
+		return &typesystem.TypedValue{
+			Value: constant.NewFloat(types.Double, fltVal),
+			Type:  typesystem.Float64,
+		}, nil, nil
 	}
 	return nil, nil, fmt.Errorf("not implemented basic lit: %s", ctx.GetText())
 }

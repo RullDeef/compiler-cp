@@ -71,18 +71,20 @@ func genFunDef(fun FunctionDecl) *ir.Func {
 
 func goTypeToIR(goType string) (types.Type, error) {
 	t, ok := map[string]types.Type{
-		"":       types.Void,
-		"bool":   types.I1,
-		"int8":   types.I8,
-		"int16":  types.I16,
-		"int32":  types.I32,
-		"int64":  types.I64,
-		"uint8":  types.I8,
-		"uint16": types.I16,
-		"uint32": types.I32,
-		"uint64": types.I64,
-		"int":    types.I32,
-		"uint":   types.I32,
+		"":        types.Void,
+		"bool":    types.I1,
+		"int8":    types.I8,
+		"int16":   types.I16,
+		"int32":   types.I32,
+		"int64":   types.I64,
+		"uint8":   types.I8,
+		"uint16":  types.I16,
+		"uint32":  types.I32,
+		"uint64":  types.I64,
+		"int":     types.I32,
+		"uint":    types.I32,
+		"float32": types.Float,
+		"float64": types.Double,
 	}[goType]
 	if !ok {
 		return nil, fmt.Errorf("invalid primitive type: %s", goType)

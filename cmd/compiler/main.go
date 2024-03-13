@@ -13,8 +13,8 @@ import (
 func main() {
 	data := `package main
 
-func retA(a, b, c int) int {
-	return a + b + c
+func avg(a, b float64) float64 {
+	return (a + b) / 2.0
 }
 
 func main() {
