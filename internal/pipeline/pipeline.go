@@ -7,9 +7,10 @@ import (
 	"gocomp/internal/passes"
 
 	"github.com/antlr4-go/antlr/v4"
+	"github.com/llir/llvm/ir"
 )
 
-func ProcessTree(ctx parser.ISourceFileContext) interface{} {
+func ProcessTree(ctx parser.ISourceFileContext) (*ir.Module, error) {
 	pass1 := passes.NewPackageListener()
 	antlr.ParseTreeWalkerDefault.Walk(pass1, ctx)
 	result := pass1.PackageData()
@@ -18,5 +19,5 @@ func ProcessTree(ctx parser.ISourceFileContext) interface{} {
 	fmt.Printf("package data:\n%s\n", ast1)
 
 	pass2 := passes.NewCodeGenVisitor(result)
-	return ctx.Accept(pass2)
+	return pass2.VisitSourceFile(ctx)
 }

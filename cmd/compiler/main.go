@@ -8,11 +8,14 @@ import (
 	"os"
 
 	"github.com/antlr4-go/antlr/v4"
-	"github.com/llir/llvm/ir"
 )
 
 func main() {
 	data := `package main
+
+func greater() bool {
+	return 10 > 20
+}
 
 func foo(a int) int {
 	return 10 + (2 - 3) / 2
@@ -26,10 +29,13 @@ func main() {
 	parser := parser.NewGoParser(tokenStream)
 
 	sourceFileContext := parser.SourceFile()
-	result := pipeline.ProcessTree(sourceFileContext).(*ir.Module)
+	module, err := pipeline.ProcessTree(sourceFileContext)
+	if err != nil {
+		panic(err)
+	}
 
-	res, _ := json.MarshalIndent(result, "", "  ")
+	res, _ := json.MarshalIndent(module, "", "  ")
 	fmt.Printf("result:\n%s\n", res)
 
-	result.WriteTo(os.Stdout)
+	module.WriteTo(os.Stdout)
 }
