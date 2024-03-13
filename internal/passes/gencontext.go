@@ -2,6 +2,7 @@ package passes
 
 import (
 	"fmt"
+	"gocomp/internal/typesystem"
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/types"
@@ -12,6 +13,10 @@ type GenContext struct {
 
 	module *ir.Module
 	Funcs  map[string]*ir.Func
+	Consts map[string]*typesystem.TypedValue
+
+	// global variable context
+	Vars *VariableContext
 }
 
 func NewGenContext(pdata *PackageData) *GenContext {
@@ -19,11 +24,13 @@ func NewGenContext(pdata *PackageData) *GenContext {
 		PackageData: pdata,
 		module:      ir.NewModule(),
 		Funcs:       make(map[string]*ir.Func),
+		Consts:      make(map[string]*typesystem.TypedValue),
+		Vars:        NewVarContext(nil),
 	}
 
 	// generate references to functions first
 	for _, fn := range pdata.Functions {
-		irFun := genFunDef(pdata, fn)
+		irFun := genFunDef(fn)
 		irFun.Parent = ctx.module
 		ctx.Funcs[fn.Name] = irFun
 	}
@@ -42,7 +49,7 @@ func (ctx *GenContext) Module() *ir.Module {
 	return ctx.module
 }
 
-func genFunDef(pdata *PackageData, fun FunctionDecl) *ir.Func {
+func genFunDef(fun FunctionDecl) *ir.Func {
 	var retType types.Type = types.Void
 	if len(fun.ReturnTypes) >= 1 {
 		var err error

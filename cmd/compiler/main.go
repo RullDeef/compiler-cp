@@ -13,12 +13,8 @@ import (
 func main() {
 	data := `package main
 
-func greater() bool {
-	return 10 > 20
-}
-
-func foo(a int) int {
-	return 10 + (2 - 3) / 2
+func retA(a, b, c int) int {
+	return a + b + c
 }
 
 func main() {

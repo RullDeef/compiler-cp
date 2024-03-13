@@ -8,7 +8,7 @@ import (
 type PackageData struct {
 	PackageName string
 	Imports     []ImportAlias
-	//Constants   []ConstantDecl
+
 	Functions map[string]FunctionDecl
 	Methods   map[string]map[string]FunctionDecl // receiver type -> method name -> decl
 }
@@ -16,11 +16,6 @@ type ImportAlias struct {
 	Path  string
 	Alias string
 }
-
-//	type ConstantDecl struct {
-//		Name  string
-//		Value string
-//	}
 
 type FunctionDecl struct {
 	Name        string

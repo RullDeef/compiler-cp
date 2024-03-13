@@ -10,178 +10,197 @@ import (
 	"github.com/llir/llvm/ir/constant"
 	"github.com/llir/llvm/ir/enum"
 	"github.com/llir/llvm/ir/types"
-	"github.com/llir/llvm/ir/value"
 )
 
-type TypedValue struct {
-	Value value.Value
-	Type  any
-}
-
-func GenerateExpr(block *ir.Block, ctx parser.IExpressionContext) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionContext) (*typesystem.TypedValue, []*ir.Block, error) {
 	if ctx.PrimaryExpr() != nil {
-		return GeneratePrimaryExpr(block, ctx.PrimaryExpr())
+		return genCtx.GeneratePrimaryExpr(block, ctx.PrimaryExpr())
 	} else if ctx.GetUnary_op() != nil {
-		return GenerateUnaryExpr(block, ctx)
+		return genCtx.GenerateUnaryExpr(block, ctx)
 	}
-	left, err := GenerateExpr(block, ctx.Expression(0))
+	left, leftBlocks, err := genCtx.GenerateExpr(block, ctx.Expression(0))
+	_ = leftBlocks
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	right, err := GenerateExpr(block, ctx.Expression(1))
+	right, rightBlocks, err := genCtx.GenerateExpr(block, ctx.Expression(1))
+	_ = rightBlocks
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if ctx.LOGICAL_AND() != nil {
+		return genCtx.GenerateAndExpr(block, left, right)
+	} else if ctx.LOGICAL_OR() != nil {
+		return genCtx.GenerateOrExpr(block, left, right)
 	}
 	if ctx.GetMul_op() != nil {
 		if ctx.STAR() != nil {
-			return GenerateMulExpr(block, left, right)
+			return genCtx.GenerateMulExpr(block, left, right)
 		} else if ctx.DIV() != nil {
-			return GenerateDivExpr(block, left, right)
+			return genCtx.GenerateDivExpr(block, left, right)
 		} else {
-			return nil, fmt.Errorf("unimplemented instruction: %s", ctx.GetText())
+			return nil, nil, fmt.Errorf("unimplemented instruction: %s", ctx.GetText())
 		}
 	} else if ctx.GetAdd_op() != nil {
 		if ctx.PLUS() != nil {
-			return GenerateAddExpr(block, left, right)
+			return genCtx.GenerateAddExpr(block, left, right)
 		} else if ctx.MINUS() != nil {
-			return GenerateSubExpr(block, left, right)
+			return genCtx.GenerateSubExpr(block, left, right)
 		} else {
-			return nil, fmt.Errorf("unimplemented instruction: %s", ctx.GetText())
+			return nil, nil, fmt.Errorf("unimplemented instruction: %s", ctx.GetText())
 		}
 	} else if ctx.GetRel_op() != nil {
-		return GenerateRelExpr(block, left, right, ctx)
-	} else if ctx.LOGICAL_AND() != nil {
-		return GenerateAndExpr(block, left, right)
-	} else if ctx.LOGICAL_OR() != nil {
-		return GenerateOrExpr(block, left, right)
+		return genCtx.GenerateRelExpr(block, left, right, ctx)
 	}
-	return nil, fmt.Errorf("other types of expression not implemented")
+
+	return nil, nil, fmt.Errorf("other types of expression not implemented")
 }
 
-func GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrimaryExprContext) (*TypedValue, error) {
+func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrimaryExprContext) (*typesystem.TypedValue, []*ir.Block, error) {
 	if ctx.Operand() != nil {
-		if ctx.Operand().Literal() != nil {
-			return GenerateLiteralExpr(block, ctx.Operand().Literal())
-		} else if ctx.Operand().Expression() != nil {
-			return GenerateExpr(block, ctx.Operand().Expression())
+		return genCtx.GenerateOperand(block, ctx.Operand())
+	}
+	return nil, nil, fmt.Errorf("unimplemented primary expression: %s", ctx.GetText())
+}
+
+func (genCtx *GenContext) GenerateOperand(block *ir.Block, ctx parser.IOperandContext) (*typesystem.TypedValue, []*ir.Block, error) {
+	if ctx.Literal() != nil {
+		return genCtx.GenerateLiteralExpr(block, ctx.Literal())
+	} else if ctx.OperandName() != nil {
+		// lookup value
+		varName := ctx.OperandName().IDENTIFIER().GetText()
+		if val, ok := genCtx.Vars.Lookup(varName); !ok {
+			return nil, nil, fmt.Errorf("variable %s not defined in this scope", varName)
+		} else {
+			llvmType, err := val.LLVMType()
+			if err != nil {
+				return nil, nil, err
+			}
+			ld := block.NewLoad(llvmType, val.Value)
+			return &typesystem.TypedValue{
+				Value: ld,
+				Type:  val.Type,
+			}, nil, nil
 		}
+	} else if ctx.Expression() != nil {
+		return genCtx.GenerateExpr(block, ctx.Expression())
 	}
-	return nil, fmt.Errorf("unimplemented primary expression: %s", ctx.GetText())
+	return nil, nil, fmt.Errorf("unmplemented operand")
 }
 
-func GenerateLiteralExpr(block *ir.Block, ctx parser.ILiteralContext) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateLiteralExpr(block *ir.Block, ctx parser.ILiteralContext) (*typesystem.TypedValue, []*ir.Block, error) {
 	if ctx.BasicLit() != nil {
-		return GenerateBasicLiteralExpr(block, ctx.BasicLit())
+		return genCtx.GenerateBasicLiteralExpr(block, ctx.BasicLit())
 	}
-	return nil, fmt.Errorf("unimplemented basic literal: %s", ctx.GetText())
+	return nil, nil, fmt.Errorf("unimplemented basic literal: %s", ctx.GetText())
 }
 
-func GenerateBasicLiteralExpr(block *ir.Block, ctx parser.IBasicLitContext) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.IBasicLitContext) (*typesystem.TypedValue, []*ir.Block, error) {
 	if ctx.NIL_LIT() != nil {
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: constant.NewNull(types.I32Ptr),
 			Type:  typesystem.Nil,
-		}, nil
+		}, nil, nil
 	} else if ctx.Integer() != nil {
 		intVal, err := strconv.Atoi(ctx.Integer().GetText())
 		if err != nil {
 			panic(fmt.Errorf("failed to convert to int: %w", err))
 		}
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: constant.NewInt(types.I32, int64(intVal)),
 			Type:  typesystem.Int64,
-		}, nil
+		}, nil, nil
 	}
-	return nil, fmt.Errorf("not implemented basic lit: %s", ctx.GetText())
+	return nil, nil, fmt.Errorf("not implemented basic lit: %s", ctx.GetText())
 }
 
-func GenerateUnaryExpr(block *ir.Block, ctx parser.IExpressionContext) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpressionContext) (*typesystem.TypedValue, []*ir.Block, error) {
 	if ctx.PLUS() != nil {
-		return GenerateExpr(block, ctx.Expression(0))
+		return genCtx.GenerateExpr(block, ctx.Expression(0))
 	}
-	return nil, fmt.Errorf("unimplemented unary expression: %s", ctx.GetText())
+	return nil, nil, fmt.Errorf("unimplemented unary expression: %s", ctx.GetText())
 }
 
-func GenerateMulExpr(block *ir.Block, left, right *TypedValue) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateMulExpr(block *ir.Block, left, right *typesystem.TypedValue) (*typesystem.TypedValue, []*ir.Block, error) {
 	if resBasicType, ok := typesystem.CommonSupertype(left.Type, right.Type); !ok {
-		return nil, fmt.Errorf("failed to deduce common type for %v and %v", left.Type, right.Type)
+		return nil, nil, fmt.Errorf("failed to deduce common type for %v and %v", left.Type, right.Type)
 	} else if typesystem.IsIntType(resBasicType) || typesystem.IsUintType(resBasicType) {
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewMul(left.Value, right.Value),
 			Type:  resBasicType,
-		}, nil
+		}, nil, nil
 	} else if typesystem.IsFloatType(resBasicType) {
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewFMul(left.Value, right.Value),
 			Type:  resBasicType,
-		}, nil
+		}, nil, nil
 	} else {
-		return nil, fmt.Errorf("not implemented behavior for mul for common type %v", resBasicType)
+		return nil, nil, fmt.Errorf("not implemented behavior for mul for common type %v", resBasicType)
 	}
 }
 
-func GenerateDivExpr(block *ir.Block, left, right *TypedValue) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateDivExpr(block *ir.Block, left, right *typesystem.TypedValue) (*typesystem.TypedValue, []*ir.Block, error) {
 	resBasicType, ok := typesystem.CommonSupertype(left.Type, right.Type)
 	if !ok {
-		return nil, fmt.Errorf("failed to deduce common type for %v and %v", left.Type, right.Type)
+		return nil, nil, fmt.Errorf("failed to deduce common type for %v and %v", left.Type, right.Type)
 	} else if typesystem.IsIntType(resBasicType) {
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewSDiv(left.Value, right.Value),
 			Type:  resBasicType,
-		}, nil
+		}, nil, nil
 	} else if typesystem.IsUintType(resBasicType) {
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewUDiv(left.Value, right.Value),
 			Type:  resBasicType,
-		}, nil
+		}, nil, nil
 	} else if typesystem.IsFloatType(resBasicType) {
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewFDiv(left.Value, right.Value),
 			Type:  resBasicType,
-		}, nil
+		}, nil, nil
 	} else {
-		return nil, fmt.Errorf("not implemented behavior for mul for common type %v", resBasicType)
+		return nil, nil, fmt.Errorf("not implemented behavior for mul for common type %v", resBasicType)
 	}
 }
 
-func GenerateAddExpr(block *ir.Block, left, right *TypedValue) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateAddExpr(block *ir.Block, left, right *typesystem.TypedValue) (*typesystem.TypedValue, []*ir.Block, error) {
 	resBasicType, ok := typesystem.CommonSupertype(left.Type, right.Type)
 	if !ok {
-		return nil, fmt.Errorf("failed to deduce common type for %v and %v", left.Type, right.Type)
+		return nil, nil, fmt.Errorf("failed to deduce common type for %v and %v", left.Type, right.Type)
 	} else if typesystem.IsFloatType(resBasicType) {
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewFAdd(left.Value, right.Value),
 			Type:  resBasicType,
-		}, nil
+		}, nil, nil
 	} else {
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewAdd(left.Value, right.Value),
 			Type:  resBasicType,
-		}, nil
+		}, nil, nil
 	}
 }
 
-func GenerateSubExpr(block *ir.Block, left, right *TypedValue) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateSubExpr(block *ir.Block, left, right *typesystem.TypedValue) (*typesystem.TypedValue, []*ir.Block, error) {
 	resBasicType, ok := typesystem.CommonSupertype(left.Type, right.Type)
 	if !ok {
-		return nil, fmt.Errorf("failed to deduce common type for %v and %v", left.Type, right.Type)
+		return nil, nil, fmt.Errorf("failed to deduce common type for %v and %v", left.Type, right.Type)
 	} else if typesystem.IsFloatType(resBasicType) {
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewFSub(left.Value, right.Value),
 			Type:  resBasicType,
-		}, nil
+		}, nil, nil
 	} else {
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewSub(left.Value, right.Value),
 			Type:  resBasicType,
-		}, nil
+		}, nil, nil
 	}
 }
 
-func GenerateRelExpr(block *ir.Block, left, right *TypedValue, ctx parser.IExpressionContext) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateRelExpr(block *ir.Block, left, right *typesystem.TypedValue, ctx parser.IExpressionContext) (*typesystem.TypedValue, []*ir.Block, error) {
 	resBasicType, ok := typesystem.CommonSupertype(left.Type, right.Type)
 	if !ok {
-		return nil, fmt.Errorf("failed to deduce common type for %v and %v", left.Type, right.Type)
+		return nil, nil, fmt.Errorf("failed to deduce common type for %v and %v", left.Type, right.Type)
 	}
 	if typesystem.IsFloatType(resBasicType) {
 		var cmpPred enum.FPred
@@ -198,12 +217,12 @@ func GenerateRelExpr(block *ir.Block, left, right *TypedValue, ctx parser.IExpre
 		} else if ctx.GREATER_OR_EQUALS() != nil {
 			cmpPred = enum.FPredOGE
 		} else {
-			return nil, fmt.Errorf("must never happen")
+			return nil, nil, fmt.Errorf("must never happen")
 		}
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewFCmp(cmpPred, left.Value, right.Value),
 			Type:  typesystem.Bool,
-		}, nil
+		}, nil, nil
 	} else {
 		var cmpPred enum.IPred
 		if ctx.EQUALS() != nil {
@@ -235,41 +254,41 @@ func GenerateRelExpr(block *ir.Block, left, right *TypedValue, ctx parser.IExpre
 				cmpPred = enum.IPredSGE
 			}
 		} else {
-			return nil, fmt.Errorf("must never happen")
+			return nil, nil, fmt.Errorf("must never happen")
 		}
-		return &TypedValue{
+		return &typesystem.TypedValue{
 			Value: block.NewICmp(cmpPred, left.Value, right.Value),
 			Type:  typesystem.Bool,
-		}, nil
+		}, nil, nil
 	}
 }
 
-func GenerateAndExpr(block *ir.Block, left, right *TypedValue) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateAndExpr(block *ir.Block, left, right *typesystem.TypedValue) (*typesystem.TypedValue, []*ir.Block, error) {
 	bt1, ok := left.Type.(typesystem.BasicType)
 	if !ok || bt1 != typesystem.Bool {
-		return nil, fmt.Errorf("left value not of type bool: (got %v)", left.Type)
+		return nil, nil, fmt.Errorf("left value not of type bool: (got %v)", left.Type)
 	}
 	bt2, ok := right.Type.(typesystem.BasicType)
 	if !ok || bt2 != typesystem.Bool {
-		return nil, fmt.Errorf("right value not of type bool: (got %v)", left.Type)
+		return nil, nil, fmt.Errorf("right value not of type bool: (got %v)", left.Type)
 	}
-	return &TypedValue{
+	return &typesystem.TypedValue{
 		Value: block.NewAnd(left.Value, right.Value),
 		Type:  typesystem.Bool,
-	}, nil
+	}, nil, nil
 }
 
-func GenerateOrExpr(block *ir.Block, left, right *TypedValue) (*TypedValue, error) {
+func (genCtx *GenContext) GenerateOrExpr(block *ir.Block, left, right *typesystem.TypedValue) (*typesystem.TypedValue, []*ir.Block, error) {
 	bt1, ok := left.Type.(typesystem.BasicType)
 	if !ok || bt1 != typesystem.Bool {
-		return nil, fmt.Errorf("left value not of type bool: (got %v)", left.Type)
+		return nil, nil, fmt.Errorf("left value not of type bool: (got %v)", left.Type)
 	}
 	bt2, ok := right.Type.(typesystem.BasicType)
 	if !ok || bt2 != typesystem.Bool {
-		return nil, fmt.Errorf("right value not of type bool: (got %v)", left.Type)
+		return nil, nil, fmt.Errorf("right value not of type bool: (got %v)", left.Type)
 	}
-	return &TypedValue{
+	return &typesystem.TypedValue{
 		Value: block.NewOr(left.Value, right.Value),
 		Type:  typesystem.Bool,
-	}, nil
+	}, nil, nil
 }

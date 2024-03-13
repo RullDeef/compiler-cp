@@ -1,5 +1,12 @@
 package typesystem
 
+import (
+	"fmt"
+
+	"github.com/llir/llvm/ir/types"
+	"github.com/llir/llvm/ir/value"
+)
+
 type BasicType int
 
 const (
@@ -23,6 +30,35 @@ const (
 	Int  = Int32
 	Uint = Uint32
 )
+
+// todo: replace with value.Named
+type TypedValue struct {
+	Value value.Value
+	Type  any
+}
+
+func NewTypedValueFromIR(irt types.Type, val value.Named) *TypedValue {
+	var basicType BasicType
+	if irt == types.I1 {
+		basicType = Bool
+	} else if irt == types.I8 {
+		basicType = Int8
+	} else if irt == types.I16 {
+		basicType = Int16
+	} else if irt == types.I32 {
+		basicType = Int32
+	} else if irt == types.I64 {
+		basicType = Int64
+	} else if irt == types.Float {
+		basicType = Float32
+	} else if irt == types.Double {
+		basicType = Float64
+	}
+	return &TypedValue{
+		Value: val,
+		Type:  basicType,
+	}
+}
 
 type ArrayType struct {
 	Length         uint64
@@ -72,4 +108,36 @@ func CommonSupertype(t1, t2 any) (BasicType, bool) {
 		return max(bt1, bt2), true
 	}
 	return 0, false
+}
+
+func (tp *TypedValue) LLVMType() (types.Type, error) {
+	btp, ok := tp.Type.(BasicType)
+	if !ok {
+		return nil, fmt.Errorf("not basic type")
+	}
+	switch btp {
+	case Bool:
+		return types.I1, nil
+	case Int8:
+		return types.I8, nil
+	case Int16:
+		return types.I16, nil
+	case Int32:
+		return types.I32, nil
+	case Int64:
+		return types.I64, nil
+	case Uint8:
+		return types.I8, nil
+	case Uint16:
+		return types.I16, nil
+	case Uint32:
+		return types.I32, nil
+	case Uint64:
+		return types.I64, nil
+	case Float32:
+		return types.Float, nil
+	case Float64:
+		return types.Double, nil
+	}
+	return nil, fmt.Errorf("invalid type")
 }
