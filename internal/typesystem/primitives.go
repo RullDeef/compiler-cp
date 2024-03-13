@@ -37,7 +37,7 @@ type TypedValue struct {
 	Type  any
 }
 
-func NewTypedValueFromIR(irt types.Type, val value.Named) *TypedValue {
+func NewTypedValueFromIR(irt types.Type, val value.Value) *TypedValue {
 	var basicType BasicType
 	if irt == types.I1 {
 		basicType = Bool

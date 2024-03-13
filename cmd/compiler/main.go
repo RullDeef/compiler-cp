@@ -18,7 +18,9 @@ func avg(a, b float64) float64 {
 }
 
 func main() {
-	var1 := 190
+	a := 190.0
+	b := 20.0
+	c := avg(a, b + 5.0)
 	return
 }`
 	lexer := parser.NewGoLexer(antlr.NewInputStream(data))

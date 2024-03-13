@@ -10,6 +10,7 @@ import (
 	"github.com/llir/llvm/ir/constant"
 	"github.com/llir/llvm/ir/enum"
 	"github.com/llir/llvm/ir/types"
+	"github.com/llir/llvm/ir/value"
 )
 
 func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionContext) (*typesystem.TypedValue, []*ir.Block, error) {
@@ -60,8 +61,41 @@ func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionCo
 func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrimaryExprContext) (*typesystem.TypedValue, []*ir.Block, error) {
 	if ctx.Operand() != nil {
 		return genCtx.GenerateOperand(block, ctx.Operand())
+	} else if ctx.PrimaryExpr() != nil && ctx.Arguments() != nil {
+		// function call
+		funName := ctx.PrimaryExpr().Operand().OperandName().IDENTIFIER().GetText()
+		funRef, ok := genCtx.Funcs[funName]
+		if !ok {
+			return nil, nil, fmt.Errorf("function %s not declared", funName)
+		}
+		args, blocks, err := genCtx.GenerateArguments(block, ctx.Arguments())
+		if err != nil {
+			return nil, nil, err
+		}
+		if blocks != nil {
+			block = blocks[len(blocks)-1]
+		}
+		res := block.NewCall(funRef, args...)
+		return typesystem.NewTypedValueFromIR(res.Type(), res), blocks, nil
 	}
 	return nil, nil, fmt.Errorf("unimplemented primary expression: %s", ctx.GetText())
+}
+
+func (genCtx *GenContext) GenerateArguments(block *ir.Block, ctx parser.IArgumentsContext) ([]value.Value, []*ir.Block, error) {
+	var vals []value.Value
+	var blocks []*ir.Block
+	for _, expr := range ctx.ExpressionList().AllExpression() {
+		tval, newBlocks, err := genCtx.GenerateExpr(block, expr)
+		if err != nil {
+			return nil, nil, err
+		}
+		if newBlocks != nil {
+			blocks = append(blocks, newBlocks...)
+			block = blocks[len(blocks)-1]
+		}
+		vals = append(vals, tval.Value)
+	}
+	return vals, blocks, nil
 }
 
 func (genCtx *GenContext) GenerateOperand(block *ir.Block, ctx parser.IOperandContext) (*typesystem.TypedValue, []*ir.Block, error) {
@@ -109,7 +143,7 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 		}
 		return &typesystem.TypedValue{
 			Value: constant.NewInt(types.I32, int64(intVal)),
-			Type:  typesystem.Int64,
+			Type:  typesystem.Int32,
 		}, nil, nil
 	} else if ctx.FLOAT_LIT() != nil {
 		fltVal, err := strconv.ParseFloat(ctx.FLOAT_LIT().GetText(), 64)
