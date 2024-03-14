@@ -13,18 +13,18 @@ func main() {
 
 // printf(format i8*, ...)
 
-func min2(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func min3(a, b, c float64) float64 {
 	if a < b {
-		return min2(a, c)
+		if a < c {
+			return a
+		} else {
+			return c
+		}
+	} else if c > b {
+		return b
+	} else {
+		return c
 	}
-	return min2(b, c)
 }
 
 func main() int {

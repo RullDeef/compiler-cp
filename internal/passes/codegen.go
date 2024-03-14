@@ -191,17 +191,34 @@ func (v *CodeGenVisitor) VisitIfStmt(block *ir.Block, ctx parser.IIfStmtContext)
 
 	// else branch TODO
 	newBlocks = append(newBlocks, bfalse)
+	if ctx.ELSE() != nil {
+		var blocks []*ir.Block
+		var err error
+		if ctx.IfStmt() != nil {
+			blocks, err = v.VisitIfStmt(bfalse, ctx.IfStmt())
+		} else {
+			blocks, err = v.VisitBlock(bfalse, ctx.Block(1))
+		}
+		if err != nil {
+			return nil, err
+		} else if blocks != nil {
+			newBlocks = append(newBlocks, blocks...)
+			bfalse = newBlocks[len(newBlocks)-1]
+		}
+	}
 
 	// end block
-	bend := ir.NewBlock(fmt.Sprintf("bend.%d", stmtUID))
-	if btrue.Term == nil {
-		btrue.NewBr(bend)
-	}
-	if bfalse.Term == nil {
-		bfalse.NewBr(bend)
+	if btrue.Term == nil || bfalse.Term == nil {
+		bend := ir.NewBlock(fmt.Sprintf("bend.%d", stmtUID))
+		if btrue.Term == nil {
+			btrue.NewBr(bend)
+		}
+		if bfalse.Term == nil {
+			bfalse.NewBr(bend)
+		}
+		newBlocks = append(newBlocks, bend)
 	}
 
-	newBlocks = append(newBlocks, bend)
 	return newBlocks, nil
 }
 
