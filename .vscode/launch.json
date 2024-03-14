@@ -6,7 +6,8 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "./cmd/compiler"
+            "program": "./cmd/compiler",
+            "cwd": "."
         }
     ]
 }

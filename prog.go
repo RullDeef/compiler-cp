@@ -3,7 +3,12 @@ package main
 // printf(format i8*, ...)
 
 func main() {
-	for i := 0; i < 5; i++ {
+	i := 1
+	for {
 		printf("loop iteration no %d\n", i)
+		i++
+		if i == 10 {
+			return
+		}
 	}
 }

@@ -192,9 +192,33 @@ func (v *CodeGenVisitor) VisitForStmt(block *ir.Block, ctx parser.IForStmtContex
 		return v.VisitWhileLoop(block, ctx)
 	} else if ctx.RangeClause() != nil {
 		return nil, fmt.Errorf("range for loop not implemented yet")
-	} else {
+	} else if ctx.ForClause() != nil {
 		return v.VisitForClaused(block, ctx)
+	} else {
+		// endless loop here
+		return v.VisitEndlessLoop(block, ctx)
 	}
+}
+
+func (v *CodeGenVisitor) VisitEndlessLoop(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
+	stmtUID := v.UID
+	v.UID++
+
+	uroboros := ir.NewBlock(fmt.Sprintf("uroboros.%d", stmtUID))
+	block.NewBr(uroboros)
+	block = uroboros
+	newBlocks := []*ir.Block{uroboros}
+	blocks, err := v.VisitBlock(block, ctx.Block())
+	if err != nil {
+		return nil, err
+	} else if blocks != nil {
+		newBlocks = append(newBlocks, blocks...)
+		block = newBlocks[len(newBlocks)-1]
+	}
+	if block.Term == nil {
+		block.NewBr(uroboros)
+	}
+	return newBlocks, nil
 }
 
 func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
