@@ -3,11 +3,7 @@ package main
 // printf(format i8*, ...)
 
 func main() {
-	a := 10
-	printf("a = %d\n", a)
-	{
-		a := 20
-		printf("a = %d\n", a)
+	for i := 0; i < 5; i = i + 1 {
+		printf("loop iteration no %d\n", i)
 	}
-	printf("a = %d\n", a)
 }
