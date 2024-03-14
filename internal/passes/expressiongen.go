@@ -159,9 +159,14 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 		if err != nil {
 			return nil, nil, err
 		}
-		val := constant.NewCharArray(append([]byte(strVal), byte(0)))
-		glob := genCtx.module.NewGlobalDef("str.0", val)
-		addr := constant.NewGetElementPtr(val.Typ, glob, constant.NewInt(types.I32, 0), constant.NewInt(types.I32, 0))
+		var glob *ir.Global
+		var ok bool
+		if glob, ok = genCtx.Consts[strVal]; !ok {
+			val := constant.NewCharArray(append([]byte(strVal), byte(0)))
+			glob = genCtx.module.NewGlobalDef(fmt.Sprintf("str.%d", len(genCtx.Consts)), val)
+			genCtx.Consts[strVal] = glob
+		}
+		addr := constant.NewGetElementPtr(glob.ContentType, glob, constant.NewInt(types.I32, 0), constant.NewInt(types.I32, 0))
 		return &typesystem.TypedValue{
 			Value: addr,
 			Type: &typesystem.PointerType{

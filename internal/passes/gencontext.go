@@ -2,7 +2,6 @@ package passes
 
 import (
 	"fmt"
-	"gocomp/internal/typesystem"
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/types"
@@ -13,7 +12,7 @@ type GenContext struct {
 
 	module *ir.Module
 	Funcs  map[string]*ir.Func
-	Consts map[string]*typesystem.TypedValue
+	Consts map[string]*ir.Global
 
 	// global variable context
 	Vars *VariableContext
@@ -24,7 +23,7 @@ func NewGenContext(pdata *PackageData) *GenContext {
 		PackageData: pdata,
 		module:      ir.NewModule(),
 		Funcs:       make(map[string]*ir.Func),
-		Consts:      make(map[string]*typesystem.TypedValue),
+		Consts:      make(map[string]*ir.Global),
 		Vars:        NewVarContext(nil),
 	}
 

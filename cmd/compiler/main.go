@@ -27,14 +27,25 @@ func min3(a, b, c float64) float64 {
 	}
 }
 
+func fib(n int) int {
+	if n <= 1 {
+		return n
+	} else {
+		return fib(n-1) + fib(n-2)
+	}
+}
+
+func fact(n int) int {
+	if n <= 1 {
+		return 1
+	} else {
+		return n * fact(n-1)
+	}
+}
+
 func main() int {
-	s := "min of 3, 4, 5 is %f\n"
-	printf(s, min3(3.0, 4.0, 5.0))
-	printf(s, min3(3.0, 5.0, 4.0))
-	printf(s, min3(4.0, 3.0, 5.0))
-	printf(s, min3(4.0, 5.0, 3.0))
-	printf(s, min3(5.0, 4.0, 3.0))
-	printf(s, min3(5.0, 3.0, 4.0))
+	printf("6th Fibonacci number is %d\n", fib(6))
+	printf("6! = %d\n", fact(6))
 	return 0
 }`
 	lexer := parser.NewGoLexer(antlr.NewInputStream(data))
