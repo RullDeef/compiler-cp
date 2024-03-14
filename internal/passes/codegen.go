@@ -124,12 +124,18 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 			block.Parent = fun
 		}
 		fun.Blocks = append(fun.Blocks, bodyBlocks...)
+		if bodyBlocks[len(bodyBlocks)-1].Term == nil {
+			// add void return stmt
+			bodyBlocks[len(bodyBlocks)-1].NewRet(nil)
+		}
 		return nil
 	}
 }
 
 func (v *CodeGenVisitor) VisitBlock(block *ir.Block, ctx parser.IBlockContext) ([]*ir.Block, error) {
 	var blocks []*ir.Block
+	v.genCtx.PushLexicalScope()
+	defer v.genCtx.PopLexicalScope()
 	if ctx.StatementList() != nil {
 		for _, stmt := range ctx.StatementList().AllStatement() {
 			switch s := stmt.GetChild(0).(type) {
@@ -270,15 +276,14 @@ func (v *CodeGenVisitor) VisitShortVarDecl(block *ir.Block, ctx parser.IShortVar
 	if newBlocks != nil {
 		block = newBlocks[len(newBlocks)-1]
 	}
-	if _, ok := v.genCtx.Vars.vars[varName]; ok {
-		return nil, fmt.Errorf("variable already defined")
-	}
 	memRef := block.NewAlloca(val.Value.Type())
-	block.NewStore(val.Value, memRef)
-	v.genCtx.Vars.vars[varName] = &typesystem.TypedValue{
+	if err := v.genCtx.Vars.Add(varName, &typesystem.TypedValue{
 		Type:  val.Type,
 		Value: memRef,
+	}); err != nil {
+		return nil, err
 	}
+	block.NewStore(val.Value, memRef)
 	return newBlocks, nil
 }
 

@@ -1,6 +1,9 @@
 package passes
 
-import "gocomp/internal/typesystem"
+import (
+	"fmt"
+	"gocomp/internal/typesystem"
+)
 
 type VariableContext struct {
 	Parent *VariableContext
@@ -21,4 +24,12 @@ func (ctx *VariableContext) Lookup(name string) (*typesystem.TypedValue, bool) {
 	} else {
 		return ctx.Parent.Lookup(name)
 	}
+}
+
+func (ctx *VariableContext) Add(name string, val *typesystem.TypedValue) error {
+	if _, ok := ctx.vars[name]; ok {
+		return fmt.Errorf("variable %s already defined in current scope", name)
+	}
+	ctx.vars[name] = val
+	return nil
 }

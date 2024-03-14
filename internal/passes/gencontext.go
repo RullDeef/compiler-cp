@@ -53,6 +53,14 @@ func (ctx *GenContext) Module() *ir.Module {
 	return ctx.module
 }
 
+func (ctx *GenContext) PushLexicalScope() {
+	ctx.Vars = NewVarContext(ctx.Vars)
+}
+
+func (ctx *GenContext) PopLexicalScope() {
+	ctx.Vars = ctx.Vars.Parent
+}
+
 func genFunDef(fun FunctionDecl) *ir.Func {
 	var retType types.Type = types.Void
 	if len(fun.ReturnTypes) >= 1 {
