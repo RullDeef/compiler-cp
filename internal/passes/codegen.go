@@ -6,6 +6,9 @@ import (
 	"gocomp/internal/typesystem"
 
 	"github.com/llir/llvm/ir"
+	"github.com/llir/llvm/ir/constant"
+	"github.com/llir/llvm/ir/types"
+	"github.com/llir/llvm/ir/value"
 )
 
 type CodeGenVisitor struct {
@@ -363,9 +366,33 @@ func (v *CodeGenVisitor) VisitSimpleStatement(block *ir.Block, ctx parser.ISimpl
 	case parser.IExpressionStmtContext:
 		_, blocks, err := v.genCtx.GenerateExpr(block, s.Expression())
 		return blocks, err
+	case parser.IIncDecStmtContext:
+		return v.VisitIncDecStmt(block, s)
 	default:
 		return nil, fmt.Errorf("unimplemented simple statement")
 	}
+}
+
+func (v *CodeGenVisitor) VisitIncDecStmt(block *ir.Block, ctx parser.IIncDecStmtContext) ([]*ir.Block, error) {
+	// assume variable name in expression
+	varName := ctx.Expression().GetText()
+	varRef, ok := v.genCtx.Vars.Lookup(varName)
+	if !ok {
+		return nil, fmt.Errorf("variable %s not found in this scope", varName)
+	}
+	llvmType, err := varRef.LLVMType()
+	if err != nil {
+		return nil, err
+	}
+	varVal := block.NewLoad(llvmType, varRef.Value)
+	var res value.Value
+	if ctx.PLUS_PLUS() != nil {
+		res = block.NewAdd(varVal, constant.NewInt(llvmType.(*types.IntType), int64(1)))
+	} else {
+		res = block.NewSub(varVal, constant.NewInt(llvmType.(*types.IntType), int64(1)))
+	}
+	block.NewStore(res, varRef.Value)
+	return nil, nil
 }
 
 func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignmentContext) ([]*ir.Block, error) {
