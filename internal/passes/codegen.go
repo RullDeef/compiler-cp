@@ -124,6 +124,7 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 			block.Parent = fun
 		}
 		fun.Blocks = append(fun.Blocks, bodyBlocks...)
+		bodyBlocks = append([]*ir.Block{block}, bodyBlocks...)
 		if bodyBlocks[len(bodyBlocks)-1].Term == nil {
 			// add void return stmt
 			bodyBlocks[len(bodyBlocks)-1].NewRet(nil)
@@ -156,6 +157,13 @@ func (v *CodeGenVisitor) VisitBlock(block *ir.Block, ctx parser.IBlockContext) (
 			case parser.IIfStmtContext:
 				if newBlocks, err := v.VisitIfStmt(block, s); err != nil {
 					return nil, fmt.Errorf("invalid if statement: %w", err)
+				} else if newBlocks != nil {
+					blocks = append(blocks, newBlocks...)
+					block = blocks[len(blocks)-1]
+				}
+			case parser.IBlockContext:
+				if newBlocks, err := v.VisitBlock(block, s); err != nil {
+					return nil, fmt.Errorf("invalid block statement: %w", err)
 				} else if newBlocks != nil {
 					blocks = append(blocks, newBlocks...)
 					block = blocks[len(blocks)-1]
