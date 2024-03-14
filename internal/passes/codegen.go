@@ -156,6 +156,9 @@ func (v *CodeGenVisitor) VisitSimpleStatement(block *ir.Block, ctx parser.ISimpl
 		return v.VisitAssignment(block, s)
 	case parser.IShortVarDeclContext:
 		return v.VisitShortVarDecl(block, s)
+	case parser.IExpressionStmtContext:
+		_, blocks, err := v.genCtx.GenerateExpr(block, s.Expression())
+		return blocks, err
 	default:
 		return nil, fmt.Errorf("unimplemented simple statement")
 	}

@@ -137,22 +137,36 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 			Type:  typesystem.Nil,
 		}, nil, nil
 	} else if ctx.Integer() != nil {
-		intVal, err := strconv.Atoi(ctx.Integer().GetText())
+		val, err := constant.NewIntFromString(types.I32, ctx.Integer().GetText())
 		if err != nil {
-			panic(fmt.Errorf("failed to convert to int: %w", err))
+			return nil, nil, err
 		}
 		return &typesystem.TypedValue{
-			Value: constant.NewInt(types.I32, int64(intVal)),
+			Value: val,
 			Type:  typesystem.Int32,
 		}, nil, nil
 	} else if ctx.FLOAT_LIT() != nil {
-		fltVal, err := strconv.ParseFloat(ctx.FLOAT_LIT().GetText(), 64)
+		val, err := constant.NewFloatFromString(types.Double, ctx.FLOAT_LIT().GetText())
 		if err != nil {
-			panic(fmt.Errorf("failed to convert to float64: %w", err))
+			return nil, nil, err
 		}
 		return &typesystem.TypedValue{
-			Value: constant.NewFloat(types.Double, fltVal),
+			Value: val,
 			Type:  typesystem.Float64,
+		}, nil, nil
+	} else if ctx.String_() != nil {
+		strVal, err := strconv.Unquote(ctx.String_().GetText())
+		if err != nil {
+			return nil, nil, err
+		}
+		val := constant.NewCharArray(append([]byte(strVal), byte(0)))
+		glob := genCtx.module.NewGlobalDef("str.0", val)
+		addr := constant.NewGetElementPtr(val.Typ, glob, constant.NewInt(types.I32, 0), constant.NewInt(types.I32, 0))
+		return &typesystem.TypedValue{
+			Value: addr,
+			Type: &typesystem.PointerType{
+				UnderlyingType: typesystem.Int8,
+			},
 		}, nil, nil
 	}
 	return nil, nil, fmt.Errorf("not implemented basic lit: %s", ctx.GetText())

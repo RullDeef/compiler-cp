@@ -60,6 +60,10 @@ func NewTypedValueFromIR(irt types.Type, val value.Value) *TypedValue {
 	}
 }
 
+type PointerType struct {
+	UnderlyingType any
+}
+
 type ArrayType struct {
 	Length         uint64
 	UnderlyingType any
@@ -111,7 +115,19 @@ func CommonSupertype(t1, t2 any) (BasicType, bool) {
 }
 
 func (tp *TypedValue) LLVMType() (types.Type, error) {
-	btp, ok := tp.Type.(BasicType)
+	return llvmType(tp.Type)
+}
+
+func llvmType(t any) (types.Type, error) {
+	ptr, ok := t.(*PointerType)
+	if ok {
+		und, err := llvmType(ptr.UnderlyingType)
+		if err != nil {
+			return nil, err
+		}
+		return types.NewPointer(und), nil
+	}
+	btp, ok := t.(BasicType)
 	if !ok {
 		return nil, fmt.Errorf("not basic type")
 	}

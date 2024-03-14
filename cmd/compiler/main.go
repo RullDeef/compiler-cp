@@ -13,10 +13,13 @@ func main() {
 
 // printf(format i8*, ...)
 
-func main() {
-	a := 190.0
-	b := 20.0
-	return
+func avg(a, b float64) float64 {
+	return (a + b) / 2.0
+}
+
+func main() int {
+	printf("avg of 2 and 3 is %f\n", avg(2.0, 3.0))
+	return 0
 }`
 	lexer := parser.NewGoLexer(antlr.NewInputStream(data))
 	tokenStream := antlr.NewCommonTokenStream(lexer, antlr.LexerDefaultTokenChannel)
