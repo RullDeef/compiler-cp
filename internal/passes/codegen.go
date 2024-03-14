@@ -12,6 +12,9 @@ type CodeGenVisitor struct {
 	parser.BaseGoParserVisitor
 	packageData *PackageData
 	genCtx      *GenContext
+
+	// unique index per function body generation
+	UID int
 }
 
 func NewCodeGenVisitor(pdata *PackageData) *CodeGenVisitor {
@@ -99,8 +102,10 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 	v.genCtx.Vars = NewVarContext(v.genCtx.Vars)
 	defer func() { v.genCtx.Vars = v.genCtx.Vars.Parent }()
 
+	v.UID = 0
+
 	// populate function arguments
-	block := fun.NewBlock("")
+	block := fun.NewBlock("entry")
 	for _, param := range fun.Params {
 		memRef := block.NewAlloca(param.Type())
 		block.NewStore(param, memRef)
@@ -142,12 +147,62 @@ func (v *CodeGenVisitor) VisitBlock(block *ir.Block, ctx parser.IBlockContext) (
 					blocks = append(blocks, newBlocks...)
 					block = blocks[len(blocks)-1]
 				}
+			case parser.IIfStmtContext:
+				if newBlocks, err := v.VisitIfStmt(block, s); err != nil {
+					return nil, fmt.Errorf("invalid if statement: %w", err)
+				} else if newBlocks != nil {
+					blocks = append(blocks, newBlocks...)
+					block = blocks[len(blocks)-1]
+				}
 			default:
 				return nil, fmt.Errorf("unsupported instruction")
 			}
 		}
 	}
 	return blocks, nil
+}
+
+func (v *CodeGenVisitor) VisitIfStmt(block *ir.Block, ctx parser.IIfStmtContext) ([]*ir.Block, error) {
+	if ctx.SimpleStmt() != nil {
+		return nil, fmt.Errorf("unsupported init statement in if")
+	}
+	expr, newBlocks, err := v.genCtx.GenerateExpr(block, ctx.Expression())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse if expression: %w", err)
+	} else if bt, ok := expr.Type.(typesystem.BasicType); !ok || bt != typesystem.Bool {
+		return nil, fmt.Errorf("expression must have boolean type")
+	} else if newBlocks != nil {
+		block = newBlocks[len(newBlocks)-1]
+	}
+	stmtUID := v.UID
+	v.UID++
+	btrue := ir.NewBlock(fmt.Sprintf("btrue.%d", stmtUID))
+	bfalse := ir.NewBlock(fmt.Sprintf("bfalse.%d", stmtUID))
+	block.NewCondBr(expr.Value, btrue, bfalse)
+
+	newBlocks = append(newBlocks, btrue)
+	trueBlocks, err := v.VisitBlock(btrue, ctx.Block(0))
+	if err != nil {
+		return nil, err
+	} else if trueBlocks != nil {
+		newBlocks = append(newBlocks, trueBlocks...)
+		btrue = newBlocks[len(newBlocks)-1]
+	}
+
+	// else branch TODO
+	newBlocks = append(newBlocks, bfalse)
+
+	// end block
+	bend := ir.NewBlock(fmt.Sprintf("bend.%d", stmtUID))
+	if btrue.Term == nil {
+		btrue.NewBr(bend)
+	}
+	if bfalse.Term == nil {
+		bfalse.NewBr(bend)
+	}
+
+	newBlocks = append(newBlocks, bend)
+	return newBlocks, nil
 }
 
 func (v *CodeGenVisitor) VisitSimpleStatement(block *ir.Block, ctx parser.ISimpleStmtContext) ([]*ir.Block, error) {

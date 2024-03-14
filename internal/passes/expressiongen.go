@@ -267,7 +267,7 @@ func (genCtx *GenContext) GenerateRelExpr(block *ir.Block, left, right *typesyst
 		} else if ctx.NOT_EQUALS() != nil {
 			cmpPred = enum.FPredONE
 		} else if ctx.LESS() != nil {
-			cmpPred = enum.FPredOLE
+			cmpPred = enum.FPredOLT
 		} else if ctx.LESS_OR_EQUALS() != nil {
 			cmpPred = enum.FPredOLE
 		} else if ctx.GREATER() != nil {

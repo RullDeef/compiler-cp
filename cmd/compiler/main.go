@@ -13,12 +13,28 @@ func main() {
 
 // printf(format i8*, ...)
 
-func avg(a, b float64) float64 {
-	return (a + b) / 2.0
+func min2(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func min3(a, b, c float64) float64 {
+	if a < b {
+		return min2(a, c)
+	}
+	return min2(b, c)
 }
 
 func main() int {
-	printf("avg of 2 and 3 is %f\n", avg(2.0, 3.0))
+	s := "min of 3, 4, 5 is %f\n"
+	printf(s, min3(3.0, 4.0, 5.0))
+	printf(s, min3(3.0, 5.0, 4.0))
+	printf(s, min3(4.0, 3.0, 5.0))
+	printf(s, min3(4.0, 5.0, 3.0))
+	printf(s, min3(5.0, 4.0, 3.0))
+	printf(s, min3(5.0, 3.0, 4.0))
 	return 0
 }`
 	lexer := parser.NewGoLexer(antlr.NewInputStream(data))
