@@ -81,6 +81,9 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 }
 
 func (genCtx *GenContext) GenerateArguments(block *ir.Block, ctx parser.IArgumentsContext) ([]value.Value, []*ir.Block, error) {
+	if ctx.ExpressionList() == nil {
+		return nil, nil, nil
+	}
 	var vals []value.Value
 	var blocks []*ir.Block
 	for _, expr := range ctx.ExpressionList().AllExpression() {

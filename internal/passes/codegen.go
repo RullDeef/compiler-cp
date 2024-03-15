@@ -152,15 +152,30 @@ func (v *CodeGenVisitor) VisitVarSpec(block *ir.Block, ctx parser.IVarSpecContex
 	}
 	var vals []*typesystem.TypedValue
 	var blocks []*ir.Block
-	for _, exp := range ctx.ExpressionList().AllExpression() {
-		val, newBlocks, err := v.genCtx.GenerateExpr(block, exp)
-		if err != nil {
-			return nil, err
-		} else if newBlocks != nil {
-			blocks = append(blocks, newBlocks...)
-			block = blocks[len(blocks)-1]
+	if ctx.ExpressionList() != nil {
+		for _, exp := range ctx.ExpressionList().AllExpression() {
+			val, newBlocks, err := v.genCtx.GenerateExpr(block, exp)
+			if err != nil {
+				return nil, err
+			} else if newBlocks != nil {
+				blocks = append(blocks, newBlocks...)
+				block = blocks[len(blocks)-1]
+			}
+			vals = append(vals, val)
 		}
-		vals = append(vals, val)
+	} else if ctx.Type_() != nil {
+		// zero value init based on type
+		if llvmType, err := goTypeToIR(ctx.Type_().GetText()); err != nil {
+			return nil, err
+		} else {
+			for range ids {
+				vals = append(vals, typesystem.NewTypedValueFromIR(llvmType,
+					constant.NewInt(llvmType.(*types.IntType), int64(0))))
+			}
+		}
+	} else {
+		// invalid situation
+		return nil, fmt.Errorf("invalid var spec")
 	}
 	if len(ids) != len(vals) {
 		return nil, fmt.Errorf("umatched count of ids(%d) and vals(%d) in const spec", len(ids), len(vals))
@@ -386,7 +401,7 @@ func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignment
 		// POTENTIALLY UNSAFE
 		varName := ctx.ExpressionList(0).Expression(i).PrimaryExpr().Operand().OperandName().IDENTIFIER().GetText()
 		varDef, ok := v.genCtx.Vars.Lookup(varName)
-		if !ok {
+		if !ok && varName != "_" {
 			return nil, fmt.Errorf("var %s not defined in this context", varName)
 		}
 		val, newBl, err := v.genCtx.GenerateExpr(block, ctx.ExpressionList(1).Expression(i))
@@ -397,7 +412,9 @@ func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignment
 			newBlocks = append(newBlocks, newBl...)
 			block = newBlocks[len(newBlocks)-1]
 		}
-		block.NewStore(val.Value, varDef.Value)
+		if varName != "_" {
+			block.NewStore(val.Value, varDef.Value)
+		}
 	}
 	return nil, nil
 }
