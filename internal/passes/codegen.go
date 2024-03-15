@@ -28,13 +28,19 @@ func NewCodeGenVisitor(pdata *PackageData) *CodeGenVisitor {
 }
 
 func (v *CodeGenVisitor) VisitSourceFile(ctx parser.ISourceFileContext) (*ir.Module, error) {
-	// gather constants
+	// gather global declarations
+	ctorFun := ir.NewFunc(fmt.Sprintf("%s_init", v.packageData.PackageName), types.Void)
+	globalInitBlocks := []*ir.Block{ir.NewBlock("entry")}
 	for _, decl := range ctx.AllDeclaration() {
-		err := v.VisitDeclaration(decl)
+		blocks, err := v.VisitDeclaration(globalInitBlocks[len(globalInitBlocks)-1], decl)
 		if err != nil {
 			return nil, err
+		} else if blocks != nil {
+			globalInitBlocks = append(globalInitBlocks, blocks...)
 		}
 	}
+	globalInitBlocks[len(globalInitBlocks)-1].NewRet(nil)
+	ctorFun.Blocks = globalInitBlocks
 
 	// add code for each function declaration
 	for _, fun := range ctx.AllFunctionDecl() {
@@ -43,63 +49,146 @@ func (v *CodeGenVisitor) VisitSourceFile(ctx parser.ISourceFileContext) (*ir.Mod
 			return nil, fmt.Errorf("failed to parse func %s: %w", fun.IDENTIFIER().GetText(), res.(error))
 		}
 	}
-	return v.genCtx.Module(), nil
+
+	// build real main function
+	module := v.genCtx.Module()
+	var mainFun *ir.Func
+	for _, fun := range module.Funcs {
+		if fun.Name() == v.packageData.PackageName+"__main" {
+			mainFun = fun
+			break
+		}
+	}
+	if mainFun == nil {
+		return nil, fmt.Errorf("main function not found")
+	}
+	module.Funcs = append(module.Funcs, ctorFun)
+	realMainFun := module.NewFunc("main", types.I32)
+	realMainEntry := realMainFun.NewBlock("entry")
+	realMainEntry.NewCall(ctorFun)
+	realMainEntry.NewCall(mainFun)
+	realMainEntry.NewRet(constant.NewInt(types.I32, int64(0)))
+
+	return module, nil
 }
 
-func (v *CodeGenVisitor) VisitDeclaration(ctx parser.IDeclarationContext) error {
+func (v *CodeGenVisitor) VisitDeclaration(block *ir.Block, ctx parser.IDeclarationContext) ([]*ir.Block, error) {
+	var newBlocks []*ir.Block
 	// populate global consts and variables
 	if ctx.ConstDecl() != nil {
 		for _, spec := range ctx.ConstDecl().AllConstSpec() {
-			err := v.VisitConstSpec(spec)
+			blocks, err := v.VisitConstSpec(block, spec)
 			if err != nil {
-				return err
+				return nil, err
+			} else if blocks != nil {
+				newBlocks = append(newBlocks, blocks...)
+				block = newBlocks[len(newBlocks)-1]
 			}
 		}
-	}
-	if ctx.VarDecl() != nil {
+		return newBlocks, nil
+	} else if ctx.VarDecl() != nil {
 		for _, spec := range ctx.VarDecl().AllVarSpec() {
-			err := v.VisitVarSpec(spec)
+			blocks, err := v.VisitVarSpec(block, spec)
 			if err != nil {
-				return err
+				return nil, err
+			} else if blocks != nil {
+				newBlocks = append(newBlocks, blocks...)
+				block = newBlocks[len(newBlocks)-1]
 			}
 		}
+		return newBlocks, nil
+	} else if ctx.TypeDecl() != nil {
+		return nil, fmt.Errorf("type declarations not supported yet")
+	} else {
+		panic("must never happen")
 	}
-	return nil
 }
 
-func (v *CodeGenVisitor) VisitConstSpec(ctx parser.IConstSpecContext) error {
+func (v *CodeGenVisitor) VisitConstSpec(block *ir.Block, ctx parser.IConstSpecContext) ([]*ir.Block, error) {
 	// iota and inherited declarations not supported yet
 	var ids []string
 	for _, id := range ctx.IdentifierList().AllIDENTIFIER() {
 		ids = append(ids, id.GetText())
 	}
-	// only constants supported right now
-	tmpBlock := ir.NewBlock("")
 	var vals []*typesystem.TypedValue
+	var blocks []*ir.Block
 	for _, exp := range ctx.ExpressionList().AllExpression() {
-		val, newBlocks, err := v.genCtx.GenerateExpr(tmpBlock, exp)
-		_ = newBlocks
+		val, newBlocks, err := v.genCtx.GenerateExpr(block, exp)
 		if err != nil {
-			return err
+			return nil, err
+		} else if newBlocks != nil {
+			blocks = append(blocks, newBlocks...)
+			block = blocks[len(blocks)-1]
 		}
 		vals = append(vals, val)
 	}
 	if len(ids) != len(vals) {
-		return fmt.Errorf("umatched count of ids(%d) and vals(%d) in const spec", len(ids), len(vals))
+		return nil, fmt.Errorf("umatched count of ids(%d) and vals(%d) in const spec", len(ids), len(vals))
 	}
 	for i := range ids {
-		v.genCtx.Vars.vars[ids[i]] = vals[i]
+		// global consts only
+		llvmType, err := vals[i].LLVMType()
+		if err != nil {
+			return nil, err
+		}
+		memRef := v.genCtx.module.NewGlobal(ids[i], llvmType)
+		memRef.Init = &constant.ZeroInitializer{}
+		block.NewStore(vals[i].Value, memRef)
+		if err := v.genCtx.Vars.Add(ids[i], &typesystem.TypedValue{
+			Value: memRef,
+			Type:  vals[i].Type,
+		}); err != nil {
+			return nil, err
+		}
 	}
-	return nil
+	return blocks, nil
 }
 
-func (v *CodeGenVisitor) VisitVarSpec(ctx parser.IVarSpecContext) error {
-	return fmt.Errorf("global var spec not supported rn")
+func (v *CodeGenVisitor) VisitVarSpec(block *ir.Block, ctx parser.IVarSpecContext) ([]*ir.Block, error) {
+	// iota and inherited declarations not supported yet
+	var ids []string
+	for _, id := range ctx.IdentifierList().AllIDENTIFIER() {
+		ids = append(ids, id.GetText())
+	}
+	var vals []*typesystem.TypedValue
+	var blocks []*ir.Block
+	for _, exp := range ctx.ExpressionList().AllExpression() {
+		val, newBlocks, err := v.genCtx.GenerateExpr(block, exp)
+		if err != nil {
+			return nil, err
+		} else if newBlocks != nil {
+			blocks = append(blocks, newBlocks...)
+			block = blocks[len(blocks)-1]
+		}
+		vals = append(vals, val)
+	}
+	if len(ids) != len(vals) {
+		return nil, fmt.Errorf("umatched count of ids(%d) and vals(%d) in const spec", len(ids), len(vals))
+	}
+	for i := range ids {
+		// global consts only
+		llvmType, err := vals[i].LLVMType()
+		if err != nil {
+			return nil, err
+		}
+		memRef := v.genCtx.module.NewGlobal(ids[i], llvmType)
+		memRef.Init = &constant.ZeroInitializer{}
+		block.NewStore(vals[i].Value, memRef)
+		if err := v.genCtx.Vars.Add(ids[i], &typesystem.TypedValue{
+			Value: memRef,
+			Type:  vals[i].Type,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return blocks, nil
 }
 
 func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) interface{} {
-	funName := ctx.IDENTIFIER().GetText()
-	fun := v.genCtx.Funcs[funName]
+	fun, err := v.genCtx.LookupFunc(ctx.IDENTIFIER().GetText())
+	if err != nil {
+		return err
+	}
 
 	// setup local var storage
 	v.genCtx.Vars = NewVarContext(v.genCtx.Vars)
@@ -178,147 +267,19 @@ func (v *CodeGenVisitor) VisitBlock(block *ir.Block, ctx parser.IBlockContext) (
 					blocks = append(blocks, newBlocks...)
 					block = blocks[len(blocks)-1]
 				}
+			case parser.IDeclarationContext:
+				if newBlocks, err := v.VisitDeclaration(block, s); err != nil {
+					return nil, fmt.Errorf("invalid declaration: %w", err)
+				} else if newBlocks != nil {
+					blocks = append(blocks, newBlocks...)
+					block = blocks[len(blocks)-1]
+				}
 			default:
 				return nil, fmt.Errorf("unsupported instruction")
 			}
 		}
 	}
 	return blocks, nil
-}
-
-func (v *CodeGenVisitor) VisitForStmt(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
-	// single expression aka while loop
-	if ctx.Expression() != nil {
-		return v.VisitWhileLoop(block, ctx)
-	} else if ctx.RangeClause() != nil {
-		return nil, fmt.Errorf("range for loop not implemented yet")
-	} else if ctx.ForClause() != nil {
-		return v.VisitForClaused(block, ctx)
-	} else {
-		// endless loop here
-		return v.VisitEndlessLoop(block, ctx)
-	}
-}
-
-func (v *CodeGenVisitor) VisitEndlessLoop(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
-	stmtUID := v.UID
-	v.UID++
-
-	uroboros := ir.NewBlock(fmt.Sprintf("uroboros.%d", stmtUID))
-	block.NewBr(uroboros)
-	block = uroboros
-	newBlocks := []*ir.Block{uroboros}
-	blocks, err := v.VisitBlock(block, ctx.Block())
-	if err != nil {
-		return nil, err
-	} else if blocks != nil {
-		newBlocks = append(newBlocks, blocks...)
-		block = newBlocks[len(newBlocks)-1]
-	}
-	if block.Term == nil {
-		block.NewBr(uroboros)
-	}
-	return newBlocks, nil
-}
-
-func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
-	stmtUID := v.UID
-	v.UID++
-
-	var newBlocks []*ir.Block
-
-	// initialization
-	if ctx.ForClause().GetInitStmt() != nil {
-		blocks, err := v.VisitSimpleStatement(block, ctx.ForClause().GetInitStmt())
-		if err != nil {
-			return nil, err
-		} else if blocks != nil {
-			newBlocks = append(newBlocks, blocks...)
-			block = newBlocks[len(newBlocks)-1]
-		}
-	}
-
-	// condition (assume expression always exist)
-	condBlock := ir.NewBlock(fmt.Sprintf("for.cond.%d", stmtUID))
-	newBlocks = append(newBlocks, condBlock)
-	block.NewBr(condBlock)
-	block = condBlock
-	val, blocks, err := v.genCtx.GenerateExpr(block, ctx.ForClause().Expression())
-	if err != nil {
-		return nil, err
-	} else if blocks != nil {
-		newBlocks = append(newBlocks, blocks...)
-		block = newBlocks[len(newBlocks)-1]
-	}
-	bbody := ir.NewBlock(fmt.Sprintf("for.body.%d", stmtUID))
-	bend := ir.NewBlock(fmt.Sprintf("for.end.%d", stmtUID))
-	block.NewCondBr(val.Value, bbody, bend)
-	newBlocks = append(newBlocks, bbody)
-	block = bbody
-
-	// loop body
-	blocks, err = v.VisitBlock(block, ctx.Block())
-	if err != nil {
-		return nil, err
-	} else if blocks != nil {
-		newBlocks = append(newBlocks, blocks...)
-		block = newBlocks[len(newBlocks)-1]
-	}
-	bpost := ir.NewBlock(fmt.Sprintf("for.post.%d", stmtUID))
-	if block.Term == nil {
-		block.NewBr(bpost)
-	}
-	newBlocks = append(newBlocks, bpost)
-	block = bpost
-
-	// post condition
-	blocks, err = v.VisitSimpleStatement(block, ctx.ForClause().GetPostStmt())
-	if err != nil {
-		return nil, err
-	} else if blocks != nil {
-		newBlocks = append(newBlocks, blocks...)
-		block = newBlocks[len(newBlocks)-1]
-	}
-	if block.Term == nil {
-		block.NewBr(condBlock)
-	}
-
-	newBlocks = append(newBlocks, bend)
-	return newBlocks, nil
-}
-
-func (v *CodeGenVisitor) VisitWhileLoop(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
-	stmtUID := v.UID
-	v.UID++
-
-	condBlock := ir.NewBlock(fmt.Sprintf("while.cond.%d", stmtUID))
-	newBlocks := []*ir.Block{condBlock}
-	block.NewBr(condBlock)
-	block = condBlock
-	val, blocks, err := v.genCtx.GenerateExpr(block, ctx.Expression())
-	if err != nil {
-		return nil, err
-	} else if blocks != nil {
-		newBlocks = append(newBlocks, blocks...)
-		block = newBlocks[len(newBlocks)-1]
-	}
-	bbody := ir.NewBlock(fmt.Sprintf("while.body.%d", stmtUID))
-	bend := ir.NewBlock(fmt.Sprintf("while.end.%d", stmtUID))
-	block.NewCondBr(val.Value, bbody, bend)
-	newBlocks = append(newBlocks, bbody)
-	block = bbody
-	blocks, err = v.VisitBlock(block, ctx.Block())
-	if err != nil {
-		return nil, err
-	} else if blocks != nil {
-		newBlocks = append(newBlocks, blocks...)
-		block = newBlocks[len(newBlocks)-1]
-	}
-	if block.Term == nil {
-		block.NewBr(condBlock)
-	}
-	newBlocks = append(newBlocks, bend)
-	return newBlocks, nil
 }
 
 func (v *CodeGenVisitor) VisitIfStmt(block *ir.Block, ctx parser.IIfStmtContext) ([]*ir.Block, error) {
@@ -442,26 +403,29 @@ func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignment
 }
 
 func (v *CodeGenVisitor) VisitShortVarDecl(block *ir.Block, ctx parser.IShortVarDeclContext) ([]*ir.Block, error) {
-	varName := ctx.IdentifierList().IDENTIFIER(0).GetText()
-	val, newBlocks, err := v.genCtx.GenerateExpr(
-		block,
-		ctx.ExpressionList().Expression(0),
-	)
-	if err != nil {
-		return nil, err
+	var blocks []*ir.Block
+	for i := range ctx.ExpressionList().AllExpression() {
+		varName := ctx.IdentifierList().IDENTIFIER(i).GetText()
+		val, newBlocks, err := v.genCtx.GenerateExpr(
+			block,
+			ctx.ExpressionList().Expression(i),
+		)
+		if err != nil {
+			return nil, err
+		} else if newBlocks != nil {
+			blocks = append(blocks, newBlocks...)
+			block = blocks[len(blocks)-1]
+		}
+		memRef := block.NewAlloca(val.Value.Type())
+		if err := v.genCtx.Vars.Add(varName, &typesystem.TypedValue{
+			Type:  val.Type,
+			Value: memRef,
+		}); err != nil {
+			return nil, err
+		}
+		block.NewStore(val.Value, memRef)
 	}
-	if newBlocks != nil {
-		block = newBlocks[len(newBlocks)-1]
-	}
-	memRef := block.NewAlloca(val.Value.Type())
-	if err := v.genCtx.Vars.Add(varName, &typesystem.TypedValue{
-		Type:  val.Type,
-		Value: memRef,
-	}); err != nil {
-		return nil, err
-	}
-	block.NewStore(val.Value, memRef)
-	return newBlocks, nil
+	return blocks, nil
 }
 
 func (v *CodeGenVisitor) VisitReturnStmt(block *ir.Block, ctx parser.IReturnStmtContext) ([]*ir.Block, error) {

@@ -64,15 +64,14 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 	} else if ctx.PrimaryExpr() != nil && ctx.Arguments() != nil {
 		// function call
 		funName := ctx.PrimaryExpr().Operand().OperandName().IDENTIFIER().GetText()
-		funRef, ok := genCtx.Funcs[funName]
-		if !ok {
-			return nil, nil, fmt.Errorf("function %s not declared", funName)
+		funRef, err := genCtx.LookupFunc(funName)
+		if err != nil {
+			return nil, nil, err
 		}
 		args, blocks, err := genCtx.GenerateArguments(block, ctx.Arguments())
 		if err != nil {
 			return nil, nil, err
-		}
-		if blocks != nil {
+		} else if blocks != nil {
 			block = blocks[len(blocks)-1]
 		}
 		res := block.NewCall(funRef, args...)

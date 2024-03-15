@@ -67,7 +67,7 @@ func (v *PackageListener) EnterImportSpec(ctx *parser.ImportSpecContext) {
 
 func (v *PackageListener) EnterFunctionDecl(ctx *parser.FunctionDeclContext) {
 	fundec := v.ParseSignature(ctx.Signature().(*parser.SignatureContext))
-	fundec.Name = ctx.IDENTIFIER().GetText()
+	fundec.Name = v.pdata.PackageName + "__" + ctx.IDENTIFIER().GetText()
 	v.pdata.Functions[fundec.Name] = fundec
 }
 

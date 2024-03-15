@@ -10,6 +10,7 @@ prog.exe: prog.s
 
 prog.s: prog.ll
 	llc-18 $^
+	opt-18 -S -o prog_opt.ll $^
 
 prog.ll: prog.go $(SRCS)
 	go run ./cmd/compiler > $@
