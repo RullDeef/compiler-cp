@@ -26,4 +26,4 @@ prog.s: prog.ll
 	opt-18 -S -o prog_opt.ll $^
 
 prog.ll: prog.go $(SRCS)
-	go run ./cmd/compiler > $@
+	go run ./cmd/compiler $< > $@

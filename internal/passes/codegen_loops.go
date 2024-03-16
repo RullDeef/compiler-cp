@@ -73,7 +73,7 @@ func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtCon
 	}
 	bbody := ir.NewBlock(fmt.Sprintf("for.body.%d", stmtUID))
 	bend := ir.NewBlock(fmt.Sprintf("for.end.%d", stmtUID))
-	block.NewCondBr(vals[0].Value, bbody, bend)
+	block.NewCondBr(vals[0], bbody, bend)
 	newBlocks = append(newBlocks, bbody)
 	block = bbody
 
@@ -125,7 +125,7 @@ func (v *CodeGenVisitor) VisitWhileLoop(block *ir.Block, ctx parser.IForStmtCont
 	}
 	bbody := ir.NewBlock(fmt.Sprintf("while.body.%d", stmtUID))
 	bend := ir.NewBlock(fmt.Sprintf("while.end.%d", stmtUID))
-	block.NewCondBr(vals[0].Value, bbody, bend)
+	block.NewCondBr(vals[0], bbody, bend)
 	newBlocks = append(newBlocks, bbody)
 	block = bbody
 	blocks, err = v.VisitBlock(block, ctx.Block())

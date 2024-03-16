@@ -1,159 +1,75 @@
 package typesystem
 
 import (
-	"fmt"
-
 	"github.com/llir/llvm/ir/types"
 	"github.com/llir/llvm/ir/value"
 )
 
-type BasicType int
+type UintType struct {
+	types.IntType
+}
 
-const (
-	Nil = BasicType(iota)
-	Bool
-	Int8
-	Int16
-	Int32
-	Int64
-	Uint8
-	Uint16
-	Uint32
-	Uint64
-	Float32
-	Float64
+var (
+	Bool    = types.I1
+	Int8    = types.I8
+	Int16   = types.I16
+	Int32   = types.I32
+	Int64   = types.I64
+	Uint8   = &UintType{IntType: *types.I8}
+	Uint16  = &UintType{IntType: *types.I16}
+	Uint32  = &UintType{IntType: *types.I32}
+	Uint64  = &UintType{IntType: *types.I64}
+	Float32 = types.Float
+	Float64 = types.Double
 	// Complex64
 	// Complex128
-	Uintptr
-	Byte = Uint8
-	Rune = Int32
-	Int  = Int32
-	Uint = Uint32
+	Uintptr = types.I8Ptr
+	Byte    = Uint8
+	Rune    = Int32
+	Int     = Int32
+	Uint    = Uint32
 )
 
-// todo: replace with value.Named
 type TypedValue struct {
-	Value value.Value
-	Type  any
+	value.Value
+	type_ types.Type
 }
 
-func NewTypedValueFromIR(irt types.Type, val value.Value) *TypedValue {
-	var basicType BasicType
-	if irt == types.I1 {
-		basicType = Bool
-	} else if irt == types.I8 {
-		basicType = Int8
-	} else if irt == types.I16 {
-		basicType = Int16
-	} else if irt == types.I32 {
-		basicType = Int32
-	} else if irt == types.I64 {
-		basicType = Int64
-	} else if irt == types.Float {
-		basicType = Float32
-	} else if irt == types.Double {
-		basicType = Float64
-	}
+func NewTypedValue(value value.Value, tp types.Type) *TypedValue {
 	return &TypedValue{
-		Value: val,
-		Type:  basicType,
+		Value: value,
+		type_: tp,
 	}
 }
 
-type PointerType struct {
-	UnderlyingType any
+func (nv TypedValue) Type() types.Type {
+	return nv.type_
 }
 
-type ArrayType struct {
-	Length         uint64
-	UnderlyingType any
+func IsBoolType(t types.Type) bool {
+	return t == Bool
 }
 
-type SliceType struct {
-	UnderlyingType any
+func IsIntType(t types.Type) bool {
+	_, okUint := t.(*UintType)
+	_, okInt := t.(*types.IntType)
+	return !okUint && okInt
 }
 
-type StructType struct {
-	TypeName string
-	Fields   []StructFieldType
+func IsUintType(t types.Type) bool {
+	_, ok := t.(*UintType)
+	return ok
 }
 
-type StructFieldType struct {
-	Name           string
-	UnderlyingType any
+func IsFloatType(t types.Type) bool {
+	_, ok := t.(*types.FloatType)
+	return ok
 }
 
-func IsIntType(t BasicType) bool {
-	return t >= Int8 && t <= Int64
-}
-
-func IsUintType(t BasicType) bool {
-	return t >= Uint8 && t <= Uint64
-}
-
-func IsFloatType(t BasicType) bool {
-	return t == Float32 || t == Float64
-}
-
-func CommonSupertype(t1, t2 any) (BasicType, bool) {
-	bt1, ok := t1.(BasicType)
-	if !ok {
-		return 0, false
+func CommonSupertype(t1, t2 types.Type) (types.Type, bool) {
+	if t1 == t2 {
+		return t1, true
 	}
-	bt2, ok := t2.(BasicType)
-	if !ok {
-		return 0, false
-	}
-	if bt1 == bt2 {
-		return bt1, true
-	} else if IsIntType(bt1) && IsIntType(bt2) {
-		return max(bt1, bt2), true
-	} else if IsFloatType(bt1) && IsFloatType(bt2) {
-		return max(bt1, bt2), true
-	}
-	return 0, false
-}
 
-func (tp *TypedValue) LLVMType() (types.Type, error) {
-	return llvmType(tp.Type)
-}
-
-func llvmType(t any) (types.Type, error) {
-	ptr, ok := t.(*PointerType)
-	if ok {
-		und, err := llvmType(ptr.UnderlyingType)
-		if err != nil {
-			return nil, err
-		}
-		return types.NewPointer(und), nil
-	}
-	btp, ok := t.(BasicType)
-	if !ok {
-		return nil, fmt.Errorf("not basic type")
-	}
-	switch btp {
-	case Bool:
-		return types.I1, nil
-	case Int8:
-		return types.I8, nil
-	case Int16:
-		return types.I16, nil
-	case Int32:
-		return types.I32, nil
-	case Int64:
-		return types.I64, nil
-	case Uint8:
-		return types.I8, nil
-	case Uint16:
-		return types.I16, nil
-	case Uint32:
-		return types.I32, nil
-	case Uint64:
-		return types.I64, nil
-	case Float32:
-		return types.Float, nil
-	case Float64:
-		return types.Double, nil
-	}
-	return nil, fmt.Errorf("invalid type")
+	return nil, false
 }
