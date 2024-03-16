@@ -80,12 +80,22 @@ func (ctx *GenContext) LookupFunc(funName string) (*ir.Func, error) {
 
 func genFunDef(fun FunctionDecl) *ir.Func {
 	var retType types.Type = types.Void
-	if len(fun.ReturnTypes) >= 1 {
+	if len(fun.ReturnTypes) == 1 {
 		var err error
 		retType, err = goTypeToIR(fun.ReturnTypes[0].Type)
 		if err != nil {
 			panic(fmt.Errorf("unimplemented return type: %w", err))
 		}
+	} else if len(fun.ReturnTypes) > 1 {
+		var fields []types.Type
+		for _, tp := range fun.ReturnTypes {
+			if llvmTp, err := goTypeToIR(tp.Type); err != nil {
+				panic(err)
+			} else {
+				fields = append(fields, llvmTp)
+			}
+		}
+		retType = types.NewStruct(fields...)
 	}
 	var params []*ir.Param
 	for _, p := range fun.ArgTypes {

@@ -428,6 +428,8 @@ basicLit
     | integer
     | string_
     | FLOAT_LIT
+    | TRUE_LIT
+    | FALSE_LIT
     ;
 
 integer

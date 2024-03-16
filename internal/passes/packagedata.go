@@ -93,9 +93,20 @@ func (v *PackageListener) ParseSignature(ctx parser.ISignatureContext) FunctionD
 		ArgTypes: v.ParseParameters(ctx.Parameters()),
 	}
 	if ctx.Result() != nil {
-		fundec.ReturnTypes = append(fundec.ReturnTypes, TypedName{
-			Type: ctx.Result().Type_().GetText(),
-		})
+		// single return value
+		if ctx.Result().Type_() != nil {
+			fundec.ReturnTypes = append(fundec.ReturnTypes, TypedName{
+				Type: ctx.Result().Type_().GetText(),
+			})
+		} else {
+			// multiple return values
+			params := v.ParseParameters(ctx.Result().Parameters())
+			for _, param := range params {
+				fundec.ReturnTypes = append(fundec.ReturnTypes, TypedName{
+					Type: param.Type,
+				})
+			}
+		}
 	}
 	return fundec
 }
@@ -111,9 +122,17 @@ func (v *PackageListener) ParseParameters(ctx parser.IParametersContext) []Typed
 func (v PackageListener) ParseParameterDecl(ctx parser.IParameterDeclContext) []TypedName {
 	type_ := ctx.Type_().TypeName().GetText()
 	params := []TypedName{}
-	for _, ident := range ctx.IdentifierList().AllIDENTIFIER() {
+	if ctx.IdentifierList() != nil {
+		for _, ident := range ctx.IdentifierList().AllIDENTIFIER() {
+			params = append(params, TypedName{
+				Name: ident.GetText(),
+				Type: type_,
+			})
+		}
+	} else {
+		// unnamed parameter
 		params = append(params, TypedName{
-			Name: ident.GetText(),
+			Name: "_",
 			Type: type_,
 		})
 	}

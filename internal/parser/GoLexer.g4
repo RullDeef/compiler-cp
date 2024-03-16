@@ -70,6 +70,11 @@ VAR         : 'var';
 
 NIL_LIT: 'nil' -> mode(NLSEMI);
 
+// Boolean literals
+
+TRUE_LIT : 'true' -> mode(NLSEMI);
+FALSE_LIT : 'false' -> mode(NLSEMI);
+
 IDENTIFIER: LETTER (LETTER | UNICODE_DIGIT)* -> mode(NLSEMI);
 
 // Punctuation
