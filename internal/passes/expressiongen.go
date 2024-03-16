@@ -322,7 +322,7 @@ func (genCtx *GenContext) GenerateRelExpr(block *ir.Block, left, right value.Val
 			cmpPred = enum.IPredNE
 		} else if ctx.LESS() != nil {
 			if _, ok := resType.(*types.IntType); ok {
-				cmpPred = enum.IPredULE
+				cmpPred = enum.IPredULT
 			} else {
 				cmpPred = enum.IPredSLT
 			}

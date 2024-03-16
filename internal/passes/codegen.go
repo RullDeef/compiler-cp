@@ -20,6 +20,8 @@ type CodeGenVisitor struct {
 	// unique index per function body generation
 	UID int
 
+	loopStack []loopBlocks
+
 	currentFuncDecl FunctionDecl
 	currentFuncIR   *ir.Func
 }
@@ -135,8 +137,7 @@ func (v *CodeGenVisitor) VisitConstSpec(block *ir.Block, ctx parser.IConstSpecCo
 		memRef.Init = &constant.ZeroInitializer{}
 		memRef.Immutable = true
 		block.NewStore(vals[i], memRef)
-		if err := v.genCtx.Vars.Add(ids[i],
-			typesystem.NewTypedValue(memRef, memRef.Type())); err != nil {
+		if err := v.genCtx.Vars.Add(ids[i], memRef); err != nil {
 			return nil, err
 		}
 	}
@@ -187,8 +188,7 @@ func (v *CodeGenVisitor) VisitVarSpec(block *ir.Block, ctx parser.IVarSpecContex
 		memRef := v.genCtx.module.NewGlobal(ids[i], vals[i].Type())
 		memRef.Init = &constant.ZeroInitializer{}
 		block.NewStore(vals[i], memRef)
-		if err := v.genCtx.Vars.Add(ids[i],
-			typesystem.NewTypedValue(memRef, memRef.Type())); err != nil {
+		if err := v.genCtx.Vars.Add(ids[i], memRef); err != nil {
 			return nil, err
 		}
 	}
@@ -215,10 +215,7 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 	for _, param := range fun.Params {
 		memRef := block.NewAlloca(param.Type())
 		block.NewStore(param, memRef)
-		v.genCtx.Vars.Add(param.Name(), typesystem.NewTypedValue(
-			memRef,
-			memRef.Type(),
-		))
+		v.genCtx.Vars.Add(param.Name(), memRef)
 	}
 
 	// codegen body
@@ -287,6 +284,14 @@ func (v *CodeGenVisitor) VisitBlock(block *ir.Block, ctx parser.IBlockContext) (
 				} else if newBlocks != nil {
 					blocks = append(blocks, newBlocks...)
 					block = blocks[len(blocks)-1]
+				}
+			case parser.IBreakStmtContext:
+				if err := v.VisitBreakStmt(block, s); err != nil {
+					return nil, err
+				}
+			case parser.IContinueStmtContext:
+				if err := v.VisitContinueStmt(block, s); err != nil {
+					return nil, err
 				}
 			default:
 				return nil, utils.MakeError("unsupported instruction")
@@ -445,8 +450,7 @@ func (v *CodeGenVisitor) VisitShortVarDecl(block *ir.Block, ctx parser.IShortVar
 				if varName == "_" {
 					continue
 				}
-				if err := v.genCtx.Vars.Add(varName, typesystem.NewTypedValue(
-					memRefs[0], types.NewPointer(field))); err != nil {
+				if err := v.genCtx.Vars.Add(varName, memRefs[0]); err != nil {
 					return nil, err
 				}
 				// extract struct element
@@ -460,8 +464,7 @@ func (v *CodeGenVisitor) VisitShortVarDecl(block *ir.Block, ctx parser.IShortVar
 			if varName == "_" {
 				continue
 			}
-			if err := v.genCtx.Vars.Add(varName, typesystem.NewTypedValue(
-				memRefs[0], memRefs[0].Type())); err != nil {
+			if err := v.genCtx.Vars.Add(varName, memRefs[0]); err != nil {
 				return nil, err
 			}
 			block.NewStore(vals[0], memRefs[0])

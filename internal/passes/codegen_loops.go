@@ -7,6 +7,23 @@ import (
 	"github.com/llir/llvm/ir"
 )
 
+type loopBlocks struct {
+	cond *ir.Block
+	end  *ir.Block
+}
+
+func (v *CodeGenVisitor) pushLoopStack(cond, end *ir.Block) {
+	v.loopStack = append(v.loopStack, loopBlocks{cond, end})
+}
+
+func (v *CodeGenVisitor) popLoopStack() {
+	v.loopStack = v.loopStack[:len(v.loopStack)-1]
+}
+
+func (v *CodeGenVisitor) topLoopBlocks() loopBlocks {
+	return v.loopStack[len(v.loopStack)-1]
+}
+
 func (v *CodeGenVisitor) VisitForStmt(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
 	// single expression aka while loop
 	if ctx.Expression() != nil {
@@ -26,6 +43,10 @@ func (v *CodeGenVisitor) VisitEndlessLoop(block *ir.Block, ctx parser.IForStmtCo
 	v.UID++
 
 	uroboros := ir.NewBlock(fmt.Sprintf("uroboros.%d", stmtUID))
+	bend := ir.NewBlock(fmt.Sprintf("uroboros.end.%d", stmtUID))
+	v.pushLoopStack(uroboros, bend)
+	defer v.popLoopStack()
+
 	block.NewBr(uroboros)
 	block = uroboros
 	newBlocks := []*ir.Block{uroboros}
@@ -39,6 +60,7 @@ func (v *CodeGenVisitor) VisitEndlessLoop(block *ir.Block, ctx parser.IForStmtCo
 	if block.Term == nil {
 		block.NewBr(uroboros)
 	}
+	newBlocks = append(newBlocks, bend)
 	return newBlocks, nil
 }
 
@@ -59,8 +81,14 @@ func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtCon
 		}
 	}
 
-	// condition (assume expression always exist)
 	condBlock := ir.NewBlock(fmt.Sprintf("for.cond.%d", stmtUID))
+	bbody := ir.NewBlock(fmt.Sprintf("for.body.%d", stmtUID))
+	bpost := ir.NewBlock(fmt.Sprintf("for.post.%d", stmtUID))
+	bend := ir.NewBlock(fmt.Sprintf("for.end.%d", stmtUID))
+	v.pushLoopStack(bpost, bend)
+	defer v.popLoopStack()
+
+	// condition (assume expression always exist)
 	newBlocks = append(newBlocks, condBlock)
 	block.NewBr(condBlock)
 	block = condBlock
@@ -71,8 +99,6 @@ func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtCon
 		newBlocks = append(newBlocks, blocks...)
 		block = newBlocks[len(newBlocks)-1]
 	}
-	bbody := ir.NewBlock(fmt.Sprintf("for.body.%d", stmtUID))
-	bend := ir.NewBlock(fmt.Sprintf("for.end.%d", stmtUID))
 	block.NewCondBr(vals[0], bbody, bend)
 	newBlocks = append(newBlocks, bbody)
 	block = bbody
@@ -85,7 +111,6 @@ func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtCon
 		newBlocks = append(newBlocks, blocks...)
 		block = newBlocks[len(newBlocks)-1]
 	}
-	bpost := ir.NewBlock(fmt.Sprintf("for.post.%d", stmtUID))
 	if block.Term == nil {
 		block.NewBr(bpost)
 	}
@@ -113,6 +138,11 @@ func (v *CodeGenVisitor) VisitWhileLoop(block *ir.Block, ctx parser.IForStmtCont
 	v.UID++
 
 	condBlock := ir.NewBlock(fmt.Sprintf("while.cond.%d", stmtUID))
+	bbody := ir.NewBlock(fmt.Sprintf("while.body.%d", stmtUID))
+	bend := ir.NewBlock(fmt.Sprintf("while.end.%d", stmtUID))
+	v.pushLoopStack(condBlock, bend)
+	defer v.popLoopStack()
+
 	newBlocks := []*ir.Block{condBlock}
 	block.NewBr(condBlock)
 	block = condBlock
@@ -123,8 +153,6 @@ func (v *CodeGenVisitor) VisitWhileLoop(block *ir.Block, ctx parser.IForStmtCont
 		newBlocks = append(newBlocks, blocks...)
 		block = newBlocks[len(newBlocks)-1]
 	}
-	bbody := ir.NewBlock(fmt.Sprintf("while.body.%d", stmtUID))
-	bend := ir.NewBlock(fmt.Sprintf("while.end.%d", stmtUID))
 	block.NewCondBr(vals[0], bbody, bend)
 	newBlocks = append(newBlocks, bbody)
 	block = bbody
@@ -140,4 +168,14 @@ func (v *CodeGenVisitor) VisitWhileLoop(block *ir.Block, ctx parser.IForStmtCont
 	}
 	newBlocks = append(newBlocks, bend)
 	return newBlocks, nil
+}
+
+func (v *CodeGenVisitor) VisitBreakStmt(block *ir.Block, ctx parser.IBreakStmtContext) error {
+	block.NewBr(v.topLoopBlocks().end)
+	return nil
+}
+
+func (v *CodeGenVisitor) VisitContinueStmt(block *ir.Block, ctx parser.IContinueStmtContext) error {
+	block.NewBr(v.topLoopBlocks().cond)
+	return nil
 }
