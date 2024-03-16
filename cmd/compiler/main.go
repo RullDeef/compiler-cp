@@ -3,13 +3,14 @@ package main
 import (
 	"gocomp/internal/parser"
 	"gocomp/internal/pipeline"
+	"io"
 	"os"
 
 	"github.com/antlr4-go/antlr/v4"
 )
 
 func main() {
-	data, err := os.ReadFile("prog.go")
+	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		panic(err)
 	}

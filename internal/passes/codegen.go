@@ -157,14 +157,14 @@ func (v *CodeGenVisitor) VisitVarSpec(block *ir.Block, ctx parser.IVarSpecContex
 	var blocks []*ir.Block
 	if ctx.ExpressionList() != nil {
 		for _, exp := range ctx.ExpressionList().AllExpression() {
-			vals, newBlocks, err := v.genCtx.GenerateExpr(block, exp)
+			exprs, newBlocks, err := v.genCtx.GenerateExpr(block, exp)
 			if err != nil {
 				return nil, err
 			} else if newBlocks != nil {
 				blocks = append(blocks, newBlocks...)
 				block = blocks[len(blocks)-1]
 			}
-			vals = append(vals, vals...)
+			vals = append(vals, exprs...)
 		}
 	} else if ctx.Type_() != nil {
 		// zero value init based on type
@@ -172,8 +172,13 @@ func (v *CodeGenVisitor) VisitVarSpec(block *ir.Block, ctx parser.IVarSpecContex
 			return nil, err
 		} else {
 			for range ids {
-				vals = append(vals, typesystem.NewTypedValueFromIR(llvmType,
-					constant.NewInt(llvmType.(*types.IntType), int64(0))))
+				if itp, ok := llvmType.(*types.IntType); ok {
+					vals = append(vals, typesystem.NewTypedValueFromIR(llvmType,
+						constant.NewInt(itp, int64(0))))
+				} else if ftp, ok := llvmType.(*types.FloatType); ok {
+					vals = append(vals, typesystem.NewTypedValueFromIR(llvmType,
+						constant.NewFloat(ftp, 0)))
+				}
 			}
 		}
 	} else {
@@ -487,14 +492,31 @@ func (v *CodeGenVisitor) VisitReturnStmt(block *ir.Block, ctx parser.IReturnStmt
 		block.NewRet(nil)
 		return nil, nil
 	}
-	expr1, newBlocks, err := v.genCtx.GenerateExpr(block, ctx.ExpressionList().Expression(0))
-	if err != nil {
-		return nil, err
+	var newBlocks []*ir.Block
+	var vals []*typesystem.TypedValue
+	for _, exprCtx := range ctx.ExpressionList().AllExpression() {
+		exprs, blocks, err := v.genCtx.GenerateExpr(block, exprCtx)
+		if err != nil {
+			return nil, err
+		} else if blocks != nil {
+			newBlocks = append(newBlocks, blocks...)
+			block = newBlocks[len(newBlocks)-1]
+		}
+		vals = append(vals, exprs...)
 	}
-	if len(newBlocks) == 0 {
-		block.NewRet(expr1[0].Value)
-	} else {
-		newBlocks[len(newBlocks)-1].NewRet(expr1[0].Value)
+	// match return types of function with value types
+	if len(vals) == 1 {
+		block.NewRet(vals[0].Value)
+	} else if len(vals) > 1 {
+		retType, ok := v.currentFuncIR.Sig.RetType.(*types.StructType)
+		if !ok {
+			return nil, fmt.Errorf("function does not return multiple values")
+		}
+		var fields []constant.Constant
+		for _, val := range vals {
+			fields = append(fields, val.Value.(constant.Constant))
+		}
+		block.NewRet(constant.NewStruct(retType, fields...))
 	}
 	return newBlocks, nil
 }
