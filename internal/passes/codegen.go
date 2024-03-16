@@ -22,6 +22,8 @@ type CodeGenVisitor struct {
 
 	loopStack []loopBlocks
 
+	LabelManager
+
 	currentFuncDecl FunctionDecl
 	currentFuncIR   *ir.Func
 }
@@ -218,6 +220,10 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 		v.genCtx.Vars.Add(param.Name(), memRef)
 	}
 
+	// initialize & cleanup goto labels
+	v.LabelManager.clearLabels()
+	defer v.LabelManager.clearLabels()
+
 	// codegen body
 	bodyBlocks, err := v.VisitBlock(block, ctx.Block())
 	if err != nil {
@@ -232,7 +238,7 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 			// add void return stmt
 			bodyBlocks[len(bodyBlocks)-1].NewRet(nil)
 		}
-		return nil
+		return v.LabelManager.checkLabelsDefined()
 	}
 }
 
@@ -242,63 +248,42 @@ func (v *CodeGenVisitor) VisitBlock(block *ir.Block, ctx parser.IBlockContext) (
 	defer v.genCtx.PopLexicalScope()
 	if ctx.StatementList() != nil {
 		for _, stmt := range ctx.StatementList().AllStatement() {
-			switch s := stmt.GetChild(0).(type) {
-			case parser.ISimpleStmtContext:
-				if newBlocks, err := v.VisitSimpleStatement(block, s); err != nil {
-					return nil, utils.MakeError("failed to parse assignment: %w", err)
-				} else if newBlocks != nil {
-					blocks = append(blocks, newBlocks...)
-					block = blocks[len(blocks)-1]
-				}
-			case parser.IReturnStmtContext:
-				if newBlocks, err := v.VisitReturnStmt(block, s); err != nil {
-					return nil, utils.MakeError("invalid ret statement: %w", err)
-				} else if newBlocks != nil {
-					blocks = append(blocks, newBlocks...)
-					block = blocks[len(blocks)-1]
-				}
-			case parser.IIfStmtContext:
-				if newBlocks, err := v.VisitIfStmt(block, s); err != nil {
-					return nil, utils.MakeError("invalid if statement: %w", err)
-				} else if newBlocks != nil {
-					blocks = append(blocks, newBlocks...)
-					block = blocks[len(blocks)-1]
-				}
-			case parser.IBlockContext:
-				if newBlocks, err := v.VisitBlock(block, s); err != nil {
-					return nil, utils.MakeError("invalid block statement: %w", err)
-				} else if newBlocks != nil {
-					blocks = append(blocks, newBlocks...)
-					block = blocks[len(blocks)-1]
-				}
-			case parser.IForStmtContext:
-				if newBlocks, err := v.VisitForStmt(block, s); err != nil {
-					return nil, utils.MakeError("invalid for statement: %w", err)
-				} else if newBlocks != nil {
-					blocks = append(blocks, newBlocks...)
-					block = blocks[len(blocks)-1]
-				}
-			case parser.IDeclarationContext:
-				if newBlocks, err := v.VisitDeclaration(block, s); err != nil {
-					return nil, utils.MakeError("invalid declaration: %w", err)
-				} else if newBlocks != nil {
-					blocks = append(blocks, newBlocks...)
-					block = blocks[len(blocks)-1]
-				}
-			case parser.IBreakStmtContext:
-				if err := v.VisitBreakStmt(block, s); err != nil {
-					return nil, err
-				}
-			case parser.IContinueStmtContext:
-				if err := v.VisitContinueStmt(block, s); err != nil {
-					return nil, err
-				}
-			default:
-				return nil, utils.MakeError("unsupported instruction")
+			if newBlocks, err := v.VisitStatement(block, stmt); err != nil {
+				return nil, utils.MakeError("failed to parse statement: %w", err)
+			} else if newBlocks != nil {
+				blocks = append(blocks, newBlocks...)
+				block = blocks[len(blocks)-1]
 			}
 		}
 	}
 	return blocks, nil
+}
+
+func (v *CodeGenVisitor) VisitStatement(block *ir.Block, ctx parser.IStatementContext) ([]*ir.Block, error) {
+	switch s := ctx.GetChild(0).(type) {
+	case parser.ISimpleStmtContext:
+		return v.VisitSimpleStatement(block, s)
+	case parser.IReturnStmtContext:
+		return v.VisitReturnStmt(block, s)
+	case parser.IIfStmtContext:
+		return v.VisitIfStmt(block, s)
+	case parser.IBlockContext:
+		return v.VisitBlock(block, s)
+	case parser.IForStmtContext:
+		return v.VisitForStmt(block, s)
+	case parser.IDeclarationContext:
+		return v.VisitDeclaration(block, s)
+	case parser.IBreakStmtContext:
+		return nil, v.VisitBreakStmt(block, s)
+	case parser.IContinueStmtContext:
+		return nil, v.VisitContinueStmt(block, s)
+	case parser.ILabeledStmtContext:
+		return v.VisitLabeledStmt(block, s)
+	case *parser.GotoStmtContext:
+		return v.VisitGotoStmt(block, s)
+	default:
+		return nil, utils.MakeError("unsupported instruction")
+	}
 }
 
 func (v *CodeGenVisitor) VisitIfStmt(block *ir.Block, ctx parser.IIfStmtContext) ([]*ir.Block, error) {

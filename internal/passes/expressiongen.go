@@ -358,10 +358,10 @@ func (genCtx *GenContext) GenerateRelExpr(block *ir.Block, left, right value.Val
 
 func (genCtx *GenContext) GenerateAndExpr(block *ir.Block, left, right value.Value) ([]value.Value, []*ir.Block, error) {
 	if !left.Type().Equal(typesystem.Bool) {
-		return nil, nil, utils.MakeError("left value not of type bool: (got %v)", left.Type)
+		return nil, nil, utils.MakeError("left value not of type bool: (got %v)", left.Type())
 	}
 	if !right.Type().Equal(typesystem.Bool) {
-		return nil, nil, utils.MakeError("right value not of type bool: (got %v)", left.Type)
+		return nil, nil, utils.MakeError("right value not of type bool: (got %v)", left.Type())
 	}
 	return []value.Value{
 		typesystem.NewTypedValue(block.NewAnd(left, right), typesystem.Bool),
@@ -370,10 +370,10 @@ func (genCtx *GenContext) GenerateAndExpr(block *ir.Block, left, right value.Val
 
 func (genCtx *GenContext) GenerateOrExpr(block *ir.Block, left, right value.Value) ([]value.Value, []*ir.Block, error) {
 	if !left.Type().Equal(typesystem.Bool) {
-		return nil, nil, utils.MakeError("left value not of type bool: (got %v)", left.Type)
+		return nil, nil, utils.MakeError("left value not of type bool: (got %v)", left.Type())
 	}
 	if !right.Type().Equal(typesystem.Bool) {
-		return nil, nil, utils.MakeError("right value not of type bool: (got %v)", left.Type)
+		return nil, nil, utils.MakeError("right value not of type bool: (got %v)", left.Type())
 	}
 	return []value.Value{
 		typesystem.NewTypedValue(block.NewOr(left, right), typesystem.Bool),
