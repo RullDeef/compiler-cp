@@ -1,18 +1,9 @@
 package main
 
 func main() {
-	printf("1\n")
-	printf("2\n")
-
-	goto some_label
-
-	printf("3\n")
-
-	goto some_label
-
-	printf("4\n")
-
-some_label:
-	printf("5\n")
-
+	defer printf("\n")
+	for i := 3; i < 6; i++ {
+		a := i
+		printf("%d ", a)
+	}
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/llir/llvm/ir"
 )
 
-type LabelManager struct {
+type labelManager struct {
 	labels map[string]*smartLabel
 }
 
@@ -17,11 +17,11 @@ type smartLabel struct {
 	forward bool
 }
 
-func (lm *LabelManager) clearLabels() {
+func (lm *labelManager) clearLabels() {
 	lm.labels = make(map[string]*smartLabel)
 }
 
-func (lm *LabelManager) checkLabelsDefined() error {
+func (lm *labelManager) checkLabelsDefined() error {
 	for label, def := range lm.labels {
 		if def.forward {
 			return utils.MakeError("label %s not defined", label)
@@ -30,7 +30,7 @@ func (lm *LabelManager) checkLabelsDefined() error {
 	return nil
 }
 
-func (lm *LabelManager) addLabel(label string, block *ir.Block) (*ir.Block, error) {
+func (lm *labelManager) addLabel(label string, block *ir.Block) (*ir.Block, error) {
 	if sl, ok := lm.labels[label]; ok {
 		if sl.forward {
 			sl.forward = false
@@ -50,7 +50,7 @@ func (lm *LabelManager) addLabel(label string, block *ir.Block) (*ir.Block, erro
 	return newBlock, nil
 }
 
-func (lm *LabelManager) GetLabel(label string) (*ir.Block, error) {
+func (lm *labelManager) GetLabel(label string) (*ir.Block, error) {
 	if sl, ok := lm.labels[label]; !ok {
 		block := ir.NewBlock(fmt.Sprintf("label.forward.%s", label))
 		lm.labels[label] = &smartLabel{

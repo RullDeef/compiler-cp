@@ -20,12 +20,12 @@ type CodeGenVisitor struct {
 	// unique index per function body generation
 	UID int
 
-	loopStack []loopBlocks
-
-	LabelManager
-
 	currentFuncDecl FunctionDecl
 	currentFuncIR   *ir.Func
+
+	loopStack    []loopBlocks // break + continue
+	labelManager              // goto handling
+	deferManager              // defer handling
 }
 
 func NewCodeGenVisitor(pdata *PackageData) *CodeGenVisitor {
@@ -221,8 +221,8 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 	}
 
 	// initialize & cleanup goto labels
-	v.LabelManager.clearLabels()
-	defer v.LabelManager.clearLabels()
+	v.labelManager.clearLabels()
+	defer v.labelManager.clearLabels()
 
 	// codegen body
 	bodyBlocks, err := v.VisitBlock(block, ctx.Block())
@@ -236,9 +236,11 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 		bodyBlocks = append([]*ir.Block{block}, bodyBlocks...)
 		if bodyBlocks[len(bodyBlocks)-1].Term == nil {
 			// add void return stmt
-			bodyBlocks[len(bodyBlocks)-1].NewRet(nil)
+			block = bodyBlocks[len(bodyBlocks)-1]
+			v.deferManager.applyDefers(block)
+			block.NewRet(nil)
 		}
-		return v.LabelManager.checkLabelsDefined()
+		return v.labelManager.checkLabelsDefined()
 	}
 }
 
@@ -279,8 +281,10 @@ func (v *CodeGenVisitor) VisitStatement(block *ir.Block, ctx parser.IStatementCo
 		return nil, v.VisitContinueStmt(block, s)
 	case parser.ILabeledStmtContext:
 		return v.VisitLabeledStmt(block, s)
-	case *parser.GotoStmtContext:
+	case parser.IGotoStmtContext:
 		return v.VisitGotoStmt(block, s)
+	case parser.IDeferStmtContext:
+		return v.VisitDeferStmt(block, s)
 	default:
 		return nil, utils.MakeError("unsupported instruction")
 	}
@@ -460,6 +464,7 @@ func (v *CodeGenVisitor) VisitShortVarDecl(block *ir.Block, ctx parser.IShortVar
 
 func (v *CodeGenVisitor) VisitReturnStmt(block *ir.Block, ctx parser.IReturnStmtContext) ([]*ir.Block, error) {
 	// TODO: return multiple values from function
+	v.deferManager.applyDefers(block)
 	if ctx.ExpressionList() == nil {
 		block.NewRet(nil)
 		return nil, nil
