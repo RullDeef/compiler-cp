@@ -33,6 +33,9 @@ func NewGenContext(pdata *PackageData) (*GenContext, error) {
 	fun := ir.NewFunc("printf", types.I32, ir.NewParam("format", types.I8Ptr))
 	fun.Sig.Variadic = true
 	ctx.SpecialFuncs["printf"] = fun
+	fun = ir.NewFunc("scanf", types.I32, ir.NewParam("format", types.I8Ptr))
+	fun.Sig.Variadic = true
+	ctx.SpecialFuncs["scanf"] = fun
 
 	// generate references to functions first
 	for _, fn := range pdata.Functions {
