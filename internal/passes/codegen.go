@@ -28,11 +28,15 @@ type CodeGenVisitor struct {
 	deferManager              // defer handling
 }
 
-func NewCodeGenVisitor(pdata *PackageData) *CodeGenVisitor {
+func NewCodeGenVisitor(pdata *PackageData) (*CodeGenVisitor, error) {
+	genCtx, err := NewGenContext(pdata)
+	if err != nil {
+		return nil, err
+	}
 	return &CodeGenVisitor{
 		packageData: pdata,
-		genCtx:      NewGenContext(pdata),
-	}
+		genCtx:      genCtx,
+	}, nil
 }
 
 func (v *CodeGenVisitor) VisitSourceFile(ctx parser.ISourceFileContext) (*ir.Module, error) {
@@ -114,24 +118,9 @@ func (v *CodeGenVisitor) VisitDeclaration(block *ir.Block, ctx parser.IDeclarati
 
 func (v *CodeGenVisitor) VisitConstSpec(block *ir.Block, ctx parser.IConstSpecContext) ([]*ir.Block, error) {
 	// iota and inherited declarations not supported yet
-	var ids []string
-	for _, id := range ctx.IdentifierList().AllIDENTIFIER() {
-		ids = append(ids, id.GetText())
-	}
-	var vals []value.Value
-	var blocks []*ir.Block
-	for _, exp := range ctx.ExpressionList().AllExpression() {
-		exprs, newBlocks, err := v.genCtx.GenerateExpr(block, exp)
-		if err != nil {
-			return nil, err
-		} else if newBlocks != nil {
-			blocks = append(blocks, newBlocks...)
-			block = blocks[len(blocks)-1]
-		}
-		vals = append(vals, exprs...)
-	}
-	if len(ids) != len(vals) {
-		return nil, utils.MakeError("umatched count of ids(%d) and vals(%d) in const spec", len(ids), len(vals))
+	blocks, ids, vals, err := v.VisitConstVarSpec(block, ctx)
+	if err != nil {
+		return nil, err
 	}
 	for i := range ids {
 		// global consts only
@@ -147,6 +136,27 @@ func (v *CodeGenVisitor) VisitConstSpec(block *ir.Block, ctx parser.IConstSpecCo
 }
 
 func (v *CodeGenVisitor) VisitVarSpec(block *ir.Block, ctx parser.IVarSpecContext) ([]*ir.Block, error) {
+	blocks, ids, vals, err := v.VisitConstVarSpec(block, ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range ids {
+		memRef := block.NewAlloca(vals[i].Type())
+		block.NewStore(vals[i], memRef)
+		if err := v.genCtx.Vars.Add(ids[i], memRef); err != nil {
+			return nil, err
+		}
+	}
+	return blocks, nil
+}
+
+type ConstVarContext interface {
+	IdentifierList() parser.IIdentifierListContext
+	ExpressionList() parser.IExpressionListContext
+	Type_() parser.IType_Context
+}
+
+func (v *CodeGenVisitor) VisitConstVarSpec(block *ir.Block, ctx ConstVarContext) ([]*ir.Block, []string, []value.Value, error) {
 	// iota and inherited declarations not supported yet
 	var ids []string
 	for _, id := range ctx.IdentifierList().AllIDENTIFIER() {
@@ -158,7 +168,7 @@ func (v *CodeGenVisitor) VisitVarSpec(block *ir.Block, ctx parser.IVarSpecContex
 		for _, exp := range ctx.ExpressionList().AllExpression() {
 			exprs, newBlocks, err := v.genCtx.GenerateExpr(block, exp)
 			if err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			} else if newBlocks != nil {
 				blocks = append(blocks, newBlocks...)
 				block = blocks[len(blocks)-1]
@@ -167,34 +177,27 @@ func (v *CodeGenVisitor) VisitVarSpec(block *ir.Block, ctx parser.IVarSpecContex
 		}
 	} else if ctx.Type_() != nil {
 		// zero value init based on type
-		if llvmType, err := goTypeToIR(ctx.Type_().GetText()); err != nil {
-			return nil, err
-		} else {
-			for range ids {
-				if itp, ok := llvmType.(*types.IntType); ok {
-					vals = append(vals, constant.NewInt(itp, int64(0)))
-				} else if ftp, ok := llvmType.(*types.FloatType); ok {
-					vals = append(vals, constant.NewFloat(ftp, 0))
-				}
+		llvmType, err := goTypeToIR(ctx.Type_().GetText())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		for range ids {
+			if itp, ok := llvmType.(*types.IntType); ok {
+				vals = append(vals, constant.NewInt(itp, int64(0)))
+			} else if ftp, ok := llvmType.(*types.FloatType); ok {
+				vals = append(vals, constant.NewFloat(ftp, 0))
+			} else if ptrtp, ok := llvmType.(*types.PointerType); ok {
+				vals = append(vals, constant.NewNull(ptrtp))
 			}
 		}
 	} else {
 		// invalid situation
-		return nil, utils.MakeError("invalid var spec")
+		return nil, nil, nil, utils.MakeError("invalid declaration spec")
 	}
 	if len(ids) != len(vals) {
-		return nil, utils.MakeError("umatched count of ids(%d) and vals(%d) in const spec", len(ids), len(vals))
+		return nil, nil, nil, utils.MakeError("umatched count of ids(%d) and vals(%d) in declaration spec", len(ids), len(vals))
 	}
-	for i := range ids {
-		// global consts only
-		memRef := v.genCtx.module.NewGlobal(ids[i], vals[i].Type())
-		memRef.Init = &constant.ZeroInitializer{}
-		block.NewStore(vals[i], memRef)
-		if err := v.genCtx.Vars.Add(ids[i], memRef); err != nil {
-			return nil, err
-		}
-	}
-	return blocks, nil
+	return blocks, ids, vals, nil
 }
 
 func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) interface{} {

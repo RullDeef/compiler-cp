@@ -1,7 +1,7 @@
 package passes
 
 import (
-	"fmt"
+	"gocomp/internal/utils"
 
 	"github.com/llir/llvm/ir/value"
 )
@@ -29,7 +29,7 @@ func (ctx *VariableContext) Lookup(name string) (value.Value, bool) {
 
 func (ctx *VariableContext) Add(name string, val value.Value) error {
 	if _, ok := ctx.vars[name]; ok {
-		return fmt.Errorf("variable %s already defined in current scope", name)
+		return utils.MakeError("variable %s already defined in current scope", name)
 	}
 	ctx.vars[name] = val
 	return nil

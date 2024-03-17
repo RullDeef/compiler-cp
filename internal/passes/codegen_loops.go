@@ -3,6 +3,7 @@ package passes
 import (
 	"fmt"
 	"gocomp/internal/parser"
+	"gocomp/internal/utils"
 
 	"github.com/llir/llvm/ir"
 )
@@ -29,7 +30,7 @@ func (v *CodeGenVisitor) VisitForStmt(block *ir.Block, ctx parser.IForStmtContex
 	if ctx.Expression() != nil {
 		return v.VisitWhileLoop(block, ctx)
 	} else if ctx.RangeClause() != nil {
-		return nil, fmt.Errorf("range for loop not implemented yet")
+		return nil, utils.MakeError("range for loop not implemented yet")
 	} else if ctx.ForClause() != nil {
 		return v.VisitForClaused(block, ctx)
 	} else {

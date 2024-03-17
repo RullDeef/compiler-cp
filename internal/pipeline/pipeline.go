@@ -16,6 +16,9 @@ func ProcessTree(ctx parser.ISourceFileContext) (*ir.Module, error) {
 	// ast1, _ := json.MarshalIndent(result, "    ", "  ")
 	// fmt.Printf("package data:\n%s\n", ast1)
 
-	pass2 := passes.NewCodeGenVisitor(result)
+	pass2, err := passes.NewCodeGenVisitor(result)
+	if err != nil {
+		return nil, err
+	}
 	return pass2.VisitSourceFile(ctx)
 }

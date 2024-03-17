@@ -2,6 +2,7 @@ package passes
 
 import (
 	"fmt"
+	"gocomp/internal/utils"
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/types"
@@ -19,7 +20,7 @@ type GenContext struct {
 	Vars *VariableContext
 }
 
-func NewGenContext(pdata *PackageData) *GenContext {
+func NewGenContext(pdata *PackageData) (*GenContext, error) {
 	ctx := GenContext{
 		PackageData:  pdata,
 		module:       ir.NewModule(),
@@ -36,12 +37,15 @@ func NewGenContext(pdata *PackageData) *GenContext {
 
 	// generate references to functions first
 	for _, fn := range pdata.Functions {
-		irFun := genFunDef(fn)
+		irFun, err := genFunDef(fn)
+		if err != nil {
+			return nil, err
+		}
 		irFun.Parent = ctx.module
 		ctx.Funcs[fn.Name] = irFun
 	}
 
-	return &ctx
+	return &ctx, nil
 }
 
 func (ctx *GenContext) Module() *ir.Module {
@@ -75,22 +79,22 @@ func (ctx *GenContext) LookupFunc(funName string) (*ir.Func, error) {
 	if f, ok := ctx.Funcs[packageFunName]; ok {
 		return f, nil
 	}
-	return nil, fmt.Errorf("function %s not defined", funName)
+	return nil, utils.MakeError("function %s not defined", funName)
 }
 
-func genFunDef(fun FunctionDecl) *ir.Func {
+func genFunDef(fun FunctionDecl) (*ir.Func, error) {
 	var retType types.Type = types.Void
 	if len(fun.ReturnTypes) == 1 {
 		var err error
 		retType, err = goTypeToIR(fun.ReturnTypes[0].Type)
 		if err != nil {
-			panic(fmt.Errorf("unimplemented return type: %w", err))
+			return nil, err
 		}
 	} else if len(fun.ReturnTypes) > 1 {
 		var fields []types.Type
 		for _, tp := range fun.ReturnTypes {
 			if llvmTp, err := goTypeToIR(tp.Type); err != nil {
-				panic(err)
+				return nil, err
 			} else {
 				fields = append(fields, llvmTp)
 			}
@@ -105,10 +109,20 @@ func genFunDef(fun FunctionDecl) *ir.Func {
 		}
 		params = append(params, ir.NewParam(p.Name, t))
 	}
-	return ir.NewFunc(fun.Name, retType, params...)
+	return ir.NewFunc(fun.Name, retType, params...), nil
 }
 
 func goTypeToIR(goType string) (types.Type, error) {
+	if goType == "" {
+		return nil, utils.MakeError("emtpy go type")
+	}
+	if goType[:1] == "*" {
+		underlying, err := goTypeToIR(goType[1:])
+		if err != nil {
+			return nil, err
+		}
+		return types.NewPointer(underlying), nil
+	}
 	t, ok := map[string]types.Type{
 		"":        types.Void,
 		"bool":    types.I1,
@@ -126,7 +140,7 @@ func goTypeToIR(goType string) (types.Type, error) {
 		"float64": types.Double,
 	}[goType]
 	if !ok {
-		return nil, fmt.Errorf("invalid primitive type: %s", goType)
+		return nil, utils.MakeError("invalid primitive type: %s", goType)
 	}
 	return t, nil
 }
