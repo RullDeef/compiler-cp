@@ -1,7 +1,6 @@
 package passes
 
 import (
-	"fmt"
 	"gocomp/internal/utils"
 
 	"github.com/llir/llvm/ir"
@@ -82,32 +81,18 @@ func (ctx *GenContext) LookupFunc(funName string) (*ir.Func, error) {
 	return nil, utils.MakeError("function %s not defined", funName)
 }
 
-func genFunDef(fun FunctionDecl) (*ir.Func, error) {
+func genFunDef(fun *FunctionDecl) (*ir.Func, error) {
 	var retType types.Type = types.Void
 	if len(fun.ReturnTypes) == 1 {
-		var err error
-		retType, err = goTypeToIR(fun.ReturnTypes[0].Type)
-		if err != nil {
-			return nil, err
-		}
+		retType = fun.ReturnTypes[0]
 	} else if len(fun.ReturnTypes) > 1 {
-		var fields []types.Type
-		for _, tp := range fun.ReturnTypes {
-			if llvmTp, err := goTypeToIR(tp.Type); err != nil {
-				return nil, err
-			} else {
-				fields = append(fields, llvmTp)
-			}
-		}
-		retType = types.NewStruct(fields...)
+		retType = types.NewStruct(fun.ReturnTypes...)
 	}
 	var params []*ir.Param
-	for _, p := range fun.ArgTypes {
-		t, err := goTypeToIR(p.Type)
-		if err != nil {
-			panic(fmt.Errorf("unimplemented arg type: %w", err))
-		}
-		params = append(params, ir.NewParam(p.Name, t))
+	for i, p := range fun.ArgTypes {
+		//TODO: fix param names
+		name := fun.ArgNames[i]
+		params = append(params, ir.NewParam(name, p))
 	}
 	return ir.NewFunc(fun.Name, retType, params...), nil
 }

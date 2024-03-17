@@ -11,7 +11,10 @@ import (
 func ProcessTree(ctx parser.ISourceFileContext) (*ir.Module, error) {
 	pass1 := passes.NewPackageListener()
 	antlr.ParseTreeWalkerDefault.Walk(pass1, ctx)
-	result := pass1.PackageData()
+	result, err := pass1.PackageData()
+	if err != nil {
+		return nil, err
+	}
 
 	// ast1, _ := json.MarshalIndent(result, "    ", "  ")
 	// fmt.Printf("package data:\n%s\n", ast1)

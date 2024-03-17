@@ -14,6 +14,72 @@ import (
 	"github.com/llir/llvm/ir/value"
 )
 
+func (genCtx *GenContext) GenerateLValue(block *ir.Block, ctx parser.IExpressionContext) ([]value.Value, []*ir.Block, error) {
+	if ctx.AMPERSAND() != nil {
+		return genCtx.GenerateLValue(block, ctx.Expression(0))
+	} else if ctx.STAR() != nil {
+		vals, blocks, err := genCtx.GenerateExpr(block, ctx.Expression(0))
+		if err != nil {
+			return nil, nil, err
+		} else if blocks != nil {
+			block = blocks[len(blocks)-1]
+		}
+		ptrtp, ok := vals[0].Type().(*types.PointerType)
+		if !ok {
+			return nil, nil, utils.MakeError("invalid lvalue type")
+		}
+		return []value.Value{
+			// typesystem.NewTypedValue(
+			// 	block.NewLoad(ptrtp.ElemType, vals[0]),
+			// 	ptrtp.ElemType,
+			// ),
+			typesystem.NewTypedValue(vals[0], ptrtp),
+		}, blocks, nil
+	}
+	switch s := ctx.GetChild(0).(type) {
+	case parser.IPrimaryExprContext:
+		return genCtx.GeneratePrimaryLValue(block, s)
+	default:
+		fmt.Println(ctx.GetText())
+		return nil, nil, utils.MakeError("this kind of lvalue not implemented")
+	}
+}
+
+func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPrimaryExprContext) ([]value.Value, []*ir.Block, error) {
+	if ctx.Operand() != nil {
+		if ctx.Operand().OperandName() != nil {
+			varName := ctx.Operand().OperandName().GetText()
+			if varName == "_" {
+				return []value.Value{nil}, nil, nil
+			}
+			if val, ok := genCtx.Vars.Lookup(varName); !ok {
+				return nil, nil, utils.MakeError("variable %s not defined in this scope", varName)
+			} else {
+				return []value.Value{
+					typesystem.NewTypedValue(val, val.Type()),
+				}, nil, nil
+			}
+		} else if ctx.Operand().L_PAREN() != nil {
+			return genCtx.GenerateLValue(block, ctx.Operand().Expression())
+		}
+	} else if ctx.PrimaryExpr() != nil {
+		// function call expected as rvalue - deference result pointer
+		vals, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx)
+		if err != nil {
+			return nil, nil, err
+		} else if blocks != nil {
+			// block = blocks[len(blocks)-1]
+		}
+		if _, ok := vals[0].Type().(*types.PointerType); !ok {
+			return nil, nil, utils.MakeError("pointer type required for lvalue")
+		}
+		return []value.Value{
+			typesystem.NewTypedValue(vals[0], vals[0].Type()),
+		}, blocks, nil
+	}
+	return nil, nil, utils.MakeError("lvalue for primary expression not implemented")
+}
+
 func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionContext) ([]value.Value, []*ir.Block, error) {
 	if ctx.PrimaryExpr() != nil {
 		return genCtx.GeneratePrimaryExpr(block, ctx.PrimaryExpr())
@@ -170,11 +236,11 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 		var glob *ir.Global
 		var ok bool
 		if glob, ok = genCtx.Consts[strVal]; !ok {
-			val := constant.NewCharArray(append([]byte(strVal), byte(0)))
+			val := constant.NewCharArray(append([]byte(strVal), 0))
 			glob = genCtx.module.NewGlobalDef(fmt.Sprintf("str.%d", len(genCtx.Consts)), val)
 			genCtx.Consts[strVal] = glob
 		}
-		addr := constant.NewGetElementPtr(glob.ContentType, glob, constant.NewInt(types.I32, 0), constant.NewInt(types.I32, 0))
+		addr := constant.NewGetElementPtr(glob.ContentType, glob, constant.NewInt(types.I32, 0))
 		return []value.Value{
 			typesystem.NewTypedValue(addr, glob.Type()),
 		}, nil, nil
@@ -196,6 +262,34 @@ func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpress
 			typesystem.NewTypedValue(
 				block.NewXor(vals[0], constant.True),
 				typesystem.Bool,
+			),
+		}, blocks, nil
+	} else if ctx.AMPERSAND() != nil {
+		// only taking address from variable
+		varName := ctx.Expression(0).GetText()
+		varRef, ok := genCtx.Vars.Lookup(varName)
+		if !ok {
+			return nil, nil, utils.MakeError("identifier %s not found", varName)
+		}
+		return []value.Value{varRef}, nil, nil
+	} else if ctx.STAR() != nil {
+		lvals, blocks, err := genCtx.GenerateLValue(block, ctx.Expression(0))
+		if err != nil {
+			return nil, nil, err
+		}
+		varRef := lvals[0]
+		ptrtp, ok := varRef.Type().(*types.PointerType)
+		if !ok {
+			return nil, nil, utils.MakeError("bad lvalue")
+		}
+		ptrtp2, ok := ptrtp.ElemType.(*types.PointerType)
+		if !ok {
+			return nil, nil, utils.MakeError("not pointer type deference")
+		}
+		return []value.Value{
+			typesystem.NewTypedValue(
+				block.NewLoad(ptrtp2.ElemType, block.NewLoad(ptrtp2, varRef)),
+				ptrtp2.ElemType,
 			),
 		}, blocks, nil
 	}
