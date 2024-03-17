@@ -29,12 +29,31 @@ func (genCtx *GenContext) GenerateLValue(block *ir.Block, ctx parser.IExpression
 			return nil, nil, utils.MakeError("invalid lvalue type")
 		}
 		return []value.Value{
-			// typesystem.NewTypedValue(
-			// 	block.NewLoad(ptrtp.ElemType, vals[0]),
-			// 	ptrtp.ElemType,
-			// ),
 			typesystem.NewTypedValue(vals[0], ptrtp),
 		}, blocks, nil
+	} else if ctx.PrimaryExpr() != nil && ctx.PrimaryExpr().Index() != nil {
+		// array indexing
+		subexprs, blocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr().PrimaryExpr())
+		if err != nil {
+			return nil, nil, err
+		} else if blocks != nil {
+			block = blocks[len(blocks)-1]
+		}
+		idxs, newBlocks, err := genCtx.GenerateExpr(block, ctx.PrimaryExpr().Index().Expression())
+		if err != nil {
+			return nil, nil, err
+		} else if newBlocks != nil {
+			blocks = append(blocks, newBlocks...)
+			block = blocks[len(blocks)-1]
+		}
+		tp := subexprs[0].Type().(*types.PointerType).ElemType
+		if arrtp, ok := tp.(*types.ArrayType); ok {
+			return []value.Value{
+				block.NewGetElementPtr(arrtp.ElemType, subexprs[0], idxs[0]),
+			}, blocks, nil
+		} else {
+			return nil, nil, utils.MakeError("invalid type for indexing: %s", tp)
+		}
 	}
 	switch s := ctx.GetChild(0).(type) {
 	case parser.IPrimaryExprContext:
@@ -63,19 +82,39 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			return genCtx.GenerateLValue(block, ctx.Operand().Expression())
 		}
 	} else if ctx.PrimaryExpr() != nil {
-		// function call expected as rvalue - deference result pointer
-		vals, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx)
-		if err != nil {
-			return nil, nil, err
-		} else if blocks != nil {
-			// block = blocks[len(blocks)-1]
+		if ctx.Arguments() != nil {
+			// function call expected as rvalue - deference result pointer
+			vals, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx)
+			if err != nil {
+				return nil, nil, err
+			} else if blocks != nil {
+				block = blocks[len(blocks)-1]
+			}
+			if _, ok := vals[0].Type().(*types.PointerType); !ok {
+				return nil, nil, utils.MakeError("pointer type required for lvalue")
+			}
+			return []value.Value{
+				typesystem.NewTypedValue(vals[0], vals[0].Type()),
+			}, blocks, nil
+		} else if ctx.Index() != nil {
+			vals, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx)
+			if err != nil {
+				return nil, nil, err
+			} else if blocks != nil {
+				block = blocks[len(blocks)-1]
+			}
+			idx, newBlocks, err := genCtx.GenerateExpr(block, ctx.Index().Expression())
+			if err != nil {
+				return nil, nil, err
+			} else if newBlocks != nil {
+				blocks = append(blocks, newBlocks...)
+				block = blocks[len(blocks)-1]
+			}
+			return []value.Value{
+				block.NewGetElementPtr(
+					vals[0].Type().(*types.PointerType).ElemType, vals[0], idx[0]),
+			}, blocks, nil
 		}
-		if _, ok := vals[0].Type().(*types.PointerType); !ok {
-			return nil, nil, utils.MakeError("pointer type required for lvalue")
-		}
-		return []value.Value{
-			typesystem.NewTypedValue(vals[0], vals[0].Type()),
-		}, blocks, nil
 	}
 	return nil, nil, utils.MakeError("lvalue for primary expression not implemented")
 }
@@ -130,26 +169,50 @@ func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionCo
 func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrimaryExprContext) ([]value.Value, []*ir.Block, error) {
 	if ctx.Operand() != nil {
 		return genCtx.GenerateOperand(block, ctx.Operand())
-	} else if ctx.PrimaryExpr() != nil && ctx.Arguments() != nil {
-		// function call
-		funName := ctx.PrimaryExpr().Operand().OperandName().IDENTIFIER().GetText()
-		funRef, err := genCtx.LookupFunc(funName)
-		if err != nil {
-			return nil, nil, err
+	} else if ctx.PrimaryExpr() != nil {
+		if ctx.Arguments() != nil {
+			// function call
+			funName := ctx.PrimaryExpr().Operand().OperandName().IDENTIFIER().GetText()
+			funRef, err := genCtx.LookupFunc(funName)
+			if err != nil {
+				return nil, nil, err
+			}
+			args, blocks, err := genCtx.GenerateArguments(block, ctx.Arguments())
+			if err != nil {
+				return nil, nil, err
+			} else if blocks != nil {
+				block = blocks[len(blocks)-1]
+			}
+			res := block.NewCall(funRef, args...)
+			return []value.Value{
+				typesystem.NewTypedValue(
+					res,
+					funRef.Sig.RetType,
+				),
+			}, blocks, nil
+		} else if ctx.Index() != nil {
+			// array indexing
+			exprs, blocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr())
+			if err != nil {
+				return nil, nil, err
+			} else if blocks != nil {
+				block = blocks[len(blocks)-1]
+			}
+			idxs, newBlocks, err := genCtx.GenerateExpr(block, ctx.Index().Expression())
+			if err != nil {
+				return nil, nil, err
+			} else if newBlocks != nil {
+				blocks = append(blocks, newBlocks...)
+				block = blocks[len(blocks)-1]
+			}
+			elemTp := exprs[0].Type().(*types.PointerType).ElemType.(*types.ArrayType).ElemType
+			return []value.Value{
+				block.NewLoad(
+					elemTp,
+					block.NewGetElementPtr(elemTp, exprs[0], idxs[0]),
+				),
+			}, blocks, nil
 		}
-		args, blocks, err := genCtx.GenerateArguments(block, ctx.Arguments())
-		if err != nil {
-			return nil, nil, err
-		} else if blocks != nil {
-			block = blocks[len(blocks)-1]
-		}
-		res := block.NewCall(funRef, args...)
-		return []value.Value{
-			typesystem.NewTypedValue(
-				res,
-				funRef.Sig.RetType,
-			),
-		}, blocks, nil
 	}
 	return nil, nil, utils.MakeError("unimplemented primary expression: %s", ctx.GetText())
 }

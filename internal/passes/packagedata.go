@@ -2,7 +2,6 @@ package passes
 
 import (
 	"gocomp/internal/parser"
-	"gocomp/internal/utils"
 	"strings"
 
 	"github.com/llir/llvm/ir/types"
@@ -90,7 +89,7 @@ func (v *PackageListener) EnterMethodDecl(ctx *parser.MethodDeclContext) {
 	fundec.Name = ctx.IDENTIFIER().GetText()
 	// parse receiver
 	rDecl := ctx.Receiver().Parameters().ParameterDecl(0)
-	fundec.Receiver, err = ParseType_(rDecl.Type_())
+	fundec.Receiver, err = ParseType(rDecl.Type_())
 	if err != nil {
 		v.err = err
 		return
@@ -115,7 +114,7 @@ func (v *PackageListener) ParseSignature(ctx parser.ISignatureContext) (*Functio
 	if ctx.Result() != nil {
 		// single return value
 		if ctx.Result().Type_() != nil {
-			tp, err := ParseType_(ctx.Result().Type_())
+			tp, err := ParseType(ctx.Result().Type_())
 			if err != nil {
 				return nil, err
 			}
@@ -149,7 +148,7 @@ func (v *PackageListener) ParseParameters(ctx parser.IParametersContext) ([]stri
 }
 
 func ParseParameterDecl(ctx parser.IParameterDeclContext) ([]string, []types.Type, error) {
-	type_, err := ParseType_(ctx.Type_())
+	type_, err := ParseType(ctx.Type_())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -166,27 +165,4 @@ func ParseParameterDecl(ctx parser.IParameterDeclContext) ([]string, []types.Typ
 		types = append(types, type_)
 	}
 	return names, types, nil
-}
-
-func ParseType_(ctx parser.IType_Context) (types.Type, error) {
-	if ctx.L_PAREN() != nil {
-		return ParseType_(ctx.Type_())
-	} else if ctx.TypeName() != nil {
-		return goTypeToIR(ctx.TypeName().GetText())
-	} else {
-		switch tp := ctx.TypeLit().GetChild(0).(type) {
-		case parser.IPointerTypeContext:
-			return ParsePointerType(tp)
-		default:
-			return nil, utils.MakeError("unimplemented literal type: %s", ctx.GetText())
-		}
-	}
-}
-
-func ParsePointerType(ctx parser.IPointerTypeContext) (types.Type, error) {
-	if underlying, err := ParseType_(ctx.Type_()); err != nil {
-		return nil, err
-	} else {
-		return types.NewPointer(underlying), nil
-	}
 }

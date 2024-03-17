@@ -190,18 +190,12 @@ func (v *CodeGenVisitor) VisitConstVarSpec(block *ir.Block, ctx ConstVarContext)
 		}
 	} else if ctx.Type_() != nil {
 		// zero value init based on type
-		llvmType, err := goTypeToIR(ctx.Type_().GetText())
+		llvmType, err := ParseType(ctx.Type_())
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		for range ids {
-			if itp, ok := llvmType.(*types.IntType); ok {
-				vals = append(vals, constant.NewInt(itp, 0))
-			} else if ftp, ok := llvmType.(*types.FloatType); ok {
-				vals = append(vals, constant.NewFloat(ftp, 0))
-			} else if ptrtp, ok := llvmType.(*types.PointerType); ok {
-				vals = append(vals, constant.NewNull(ptrtp))
-			}
+			vals = append(vals, constant.NewZeroInitializer(llvmType))
 		}
 	} else {
 		// invalid situation
@@ -423,10 +417,19 @@ func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignment
 			newBlocks = append(newBlocks, blocks...)
 			block = newBlocks[len(newBlocks)-1]
 		}
-		if _, ok := varRef.Type().(*types.PointerType); !ok {
-			return nil, utils.MakeError("expected pointer type")
-		}
 		if varRef != nil {
+			// if _, ok := varRef.Type().(*types.PointerType); !ok {
+			// 	return nil, utils.MakeError("expected pointer type")
+			// }
+
+			//LIFEHACK: - assume array type is pointer type
+			// if arrtp, ok := varRef.Type().(*types.ArrayType); ok {
+			// 	block.NewStore(rvals[0], typesystem.NewTypedValue(
+			// 		varRef,
+			// 		types.NewPointer(arrtp.ElemType),
+			// 	))
+			// } else {
+			// }
 			block.NewStore(rvals[0], varRef)
 		}
 	}
