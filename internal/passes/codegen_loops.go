@@ -26,6 +26,8 @@ func (v *CodeGenVisitor) topLoopBlocks() loopBlocks {
 }
 
 func (v *CodeGenVisitor) VisitForStmt(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
+	v.genCtx.PushLexicalScope()
+	defer v.genCtx.PopLexicalScope()
 	// single expression aka while loop
 	if ctx.Expression() != nil {
 		return v.VisitWhileLoop(block, ctx)
