@@ -329,12 +329,11 @@ func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpress
 		}, blocks, nil
 	} else if ctx.AMPERSAND() != nil {
 		// only taking address from variable
-		varName := ctx.Expression(0).GetText()
-		varRef, ok := genCtx.Vars.Lookup(varName)
-		if !ok {
-			return nil, nil, utils.MakeError("identifier %s not found", varName)
+		exprs, blocks, err := genCtx.GenerateLValue(block, ctx.Expression(0))
+		if err != nil {
+			return nil, nil, err
 		}
-		return []value.Value{varRef}, nil, nil
+		return []value.Value{exprs[0]}, blocks, nil
 	} else if ctx.STAR() != nil {
 		lvals, blocks, err := genCtx.GenerateLValue(block, ctx.Expression(0))
 		if err != nil {
