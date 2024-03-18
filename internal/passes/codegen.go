@@ -400,37 +400,33 @@ func (v *CodeGenVisitor) VisitIncDecStmt(block *ir.Block, ctx parser.IIncDecStmt
 
 func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignmentContext) ([]*ir.Block, error) {
 	var newBlocks []*ir.Block
+	var lvals []value.Value
+	var rvals []value.Value
 	for i := range ctx.ExpressionList(0).AllExpression() {
 		// POTENTIALLY UNSAFE
-		lvals, blocks, err := v.genCtx.GenerateLValue(block, ctx.ExpressionList(0).Expression(i))
+		exprs, blocks, err := v.genCtx.GenerateLValue(block, ctx.ExpressionList(0).Expression(i))
 		if err != nil {
 			return nil, err
 		} else if blocks != nil {
 			newBlocks = append(newBlocks, blocks...)
 			block = newBlocks[len(newBlocks)-1]
 		}
-		varRef := lvals[0]
-		rvals, blocks, err := v.genCtx.GenerateExpr(block, ctx.ExpressionList(1).Expression(i))
+		lvals = append(lvals, exprs...)
+		exprs, blocks, err = v.genCtx.GenerateExpr(block, ctx.ExpressionList(1).Expression(i))
 		if err != nil {
 			return nil, err
 		} else if blocks != nil {
 			newBlocks = append(newBlocks, blocks...)
 			block = newBlocks[len(newBlocks)-1]
 		}
-		if varRef != nil {
-			// if _, ok := varRef.Type().(*types.PointerType); !ok {
-			// 	return nil, utils.MakeError("expected pointer type")
-			// }
-
-			//LIFEHACK: - assume array type is pointer type
-			// if arrtp, ok := varRef.Type().(*types.ArrayType); ok {
-			// 	block.NewStore(rvals[0], typesystem.NewTypedValue(
-			// 		varRef,
-			// 		types.NewPointer(arrtp.ElemType),
-			// 	))
-			// } else {
-			// }
-			block.NewStore(rvals[0], varRef)
+		rvals = append(rvals, exprs...)
+	}
+	if len(lvals) != len(rvals) {
+		return nil, utils.MakeError("unmatched lvals(%d) and rvals(%d) count", len(lvals), len(rvals))
+	}
+	for i := range len(rvals) {
+		if lvals[i] != nil {
+			block.NewStore(rvals[i], lvals[i])
 		}
 	}
 	return nil, nil
