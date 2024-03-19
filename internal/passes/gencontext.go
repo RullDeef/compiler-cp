@@ -1,6 +1,7 @@
 package passes
 
 import (
+	"fmt"
 	"gocomp/internal/utils"
 
 	"github.com/llir/llvm/ir"
@@ -10,10 +11,11 @@ import (
 type GenContext struct {
 	PackageData *PackageData
 
-	module       *ir.Module
-	Funcs        map[string]*ir.Func
-	SpecialFuncs map[string]*ir.Func
-	Consts       map[string]*ir.Global
+	module           *ir.Module
+	Funcs            map[string]*ir.Func
+	SpecialFuncs     map[string]*ir.Func
+	SpecialFuncDecls map[string]*FunctionDecl
+	Consts           map[string]*ir.Global
 
 	// global variable context
 	Vars *VariableContext
@@ -21,21 +23,34 @@ type GenContext struct {
 
 func NewGenContext(pdata *PackageData) (*GenContext, error) {
 	ctx := GenContext{
-		PackageData:  pdata,
-		module:       ir.NewModule(),
-		Funcs:        make(map[string]*ir.Func),
-		SpecialFuncs: make(map[string]*ir.Func),
-		Consts:       make(map[string]*ir.Global),
-		Vars:         NewVarContext(nil),
+		PackageData:      pdata,
+		module:           ir.NewModule(),
+		Funcs:            make(map[string]*ir.Func),
+		SpecialFuncs:     make(map[string]*ir.Func),
+		SpecialFuncDecls: make(map[string]*FunctionDecl),
+		Consts:           make(map[string]*ir.Global),
+		Vars:             NewVarContext(nil),
 	}
 
 	// populate global functions (like printf)
 	fun := ir.NewFunc("printf", types.I32, ir.NewParam("format", types.I8Ptr))
 	fun.Sig.Variadic = true
 	ctx.SpecialFuncs["printf"] = fun
+	ctx.SpecialFuncDecls["printf"] = &FunctionDecl{
+		Name:        "printf",
+		ArgNames:    []string{"format"},
+		ArgTypes:    []types.Type{types.I8Ptr},
+		ReturnTypes: []types.Type{types.I32},
+	}
 	fun = ir.NewFunc("scanf", types.I32, ir.NewParam("format", types.I8Ptr))
 	fun.Sig.Variadic = true
 	ctx.SpecialFuncs["scanf"] = fun
+	ctx.SpecialFuncDecls["scanf"] = &FunctionDecl{
+		Name:        "scanf",
+		ArgNames:    []string{"format"},
+		ArgTypes:    []types.Type{types.I8Ptr},
+		ReturnTypes: []types.Type{types.I32},
+	}
 
 	// generate references to functions first
 	for _, fn := range pdata.Functions {
@@ -73,6 +88,17 @@ func (ctx *GenContext) PopLexicalScope() {
 	ctx.Vars = ctx.Vars.Parent
 }
 
+func (ctx *GenContext) LookupFuncDecl(funName string) (*FunctionDecl, error) {
+	if f, ok := ctx.SpecialFuncDecls[funName]; ok {
+		return f, nil
+	}
+	packageFunName := ctx.PackageData.PackageName + "__" + funName
+	if f, ok := ctx.PackageData.Functions[packageFunName]; ok {
+		return f, nil
+	}
+	return nil, utils.MakeError("function %s not defined", funName)
+}
+
 func (ctx *GenContext) LookupFunc(funName string) (*ir.Func, error) {
 	if f, ok := ctx.SpecialFuncs[funName]; ok {
 		return f, nil
@@ -86,14 +112,22 @@ func (ctx *GenContext) LookupFunc(funName string) (*ir.Func, error) {
 
 func genFunDef(fun *FunctionDecl) (*ir.Func, error) {
 	var retType types.Type = types.Void
+	var params []*ir.Param
 	if len(fun.ReturnTypes) == 1 {
 		retType = fun.ReturnTypes[0]
 	} else if len(fun.ReturnTypes) > 1 {
-		retType = types.NewStruct(fun.ReturnTypes...)
+		retType = types.Void
+		// use func params to return values from function
+		for i, p := range fun.ReturnTypes {
+			// generate param name if it is not given
+			name := fun.ReturnNames[i]
+			if name == "" {
+				name = fmt.Sprintf("%s__ret_%d", fun.Name, i)
+			}
+			params = append(params, ir.NewParam(name, types.NewPointer(p)))
+		}
 	}
-	var params []*ir.Param
 	for i, p := range fun.ArgTypes {
-		//TODO: fix param names
 		name := fun.ArgNames[i]
 		params = append(params, ir.NewParam(name, p))
 	}

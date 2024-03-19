@@ -183,13 +183,34 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 			} else if blocks != nil {
 				block = blocks[len(blocks)-1]
 			}
-			res := block.NewCall(funRef, args...)
-			return []value.Value{
-				typesystem.NewTypedValue(
-					res,
-					funRef.Sig.RetType,
-				),
-			}, blocks, nil
+			funDecl, err := genCtx.LookupFuncDecl(funName)
+			if err != nil {
+				return nil, nil, utils.MakeError("function declaration for %s not found", funName)
+			}
+			if funDecl.ReturnTypes == nil {
+				return nil, nil, nil
+			} else if len(funDecl.ReturnTypes) == 1 {
+				res := block.NewCall(funRef, args...)
+				return []value.Value{typesystem.NewTypedValue(res, funRef.Sig.RetType)}, blocks, nil
+			} else if len(funDecl.ReturnTypes) > 1 {
+				// additional out parameters in front of explicit ones
+				outParams := []value.Value{}
+				irf, _ := genCtx.LookupFunc(funName)
+				for i := range funDecl.ReturnTypes {
+					// pName := irf.Params[i].Name()
+					ref := block.NewAlloca(irf.Params[i].Type().(*types.PointerType).ElemType)
+					outParams = append(outParams, ref)
+				}
+				args = append(outParams, args...)
+				block.NewCall(funRef, args...)
+				resVals := []value.Value{}
+				for _, ref := range outParams {
+					resVals = append(resVals,
+						block.NewLoad(ref.(*ir.InstAlloca).Typ.ElemType, ref),
+					)
+				}
+				return resVals, blocks, nil
+			}
 		} else if ctx.Index() != nil {
 			// array indexing
 			exprs, blocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr())
