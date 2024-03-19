@@ -74,9 +74,7 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			if val, ok := genCtx.Vars.Lookup(varName); !ok {
 				return nil, nil, utils.MakeError("variable %s not defined in this scope", varName)
 			} else {
-				return []value.Value{
-					typesystem.NewTypedValue(val, val.Type()),
-				}, nil, nil
+				return []value.Value{val}, nil, nil
 			}
 		} else if ctx.Operand().L_PAREN() != nil {
 			return genCtx.GenerateLValue(block, ctx.Operand().Expression())
@@ -93,9 +91,7 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			if _, ok := vals[0].Type().(*types.PointerType); !ok {
 				return nil, nil, utils.MakeError("pointer type required for lvalue")
 			}
-			return []value.Value{
-				typesystem.NewTypedValue(vals[0], vals[0].Type()),
-			}, blocks, nil
+			return []value.Value{vals[0], vals[0]}, blocks, nil
 		} else if ctx.Index() != nil {
 			vals, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx)
 			if err != nil {
@@ -117,6 +113,46 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 		}
 	}
 	return nil, nil, utils.MakeError("lvalue for primary expression not implemented")
+}
+
+func (genCtx *GenContext) GenerateIdentList(ctx parser.IIdentifierListContext) []string {
+	var ids []string
+	for i := range ctx.AllIDENTIFIER() {
+		ids = append(ids, ctx.IDENTIFIER(i).GetText())
+	}
+	return ids
+}
+
+func (genCtx *GenContext) GenerateLValueList(block *ir.Block, ctx parser.IExpressionListContext) ([]value.Value, []*ir.Block, error) {
+	var newBlocks []*ir.Block
+	var lvals []value.Value
+	for i := range ctx.AllExpression() {
+		exprs, blocks, err := genCtx.GenerateLValue(block, ctx.Expression(i))
+		if err != nil {
+			return nil, nil, err
+		} else if blocks != nil {
+			newBlocks = append(newBlocks, blocks...)
+			block = newBlocks[len(newBlocks)-1]
+		}
+		lvals = append(lvals, exprs...)
+	}
+	return lvals, newBlocks, nil
+}
+
+func (genCtx *GenContext) GenerateExprList(block *ir.Block, ctx parser.IExpressionListContext) ([]value.Value, []*ir.Block, error) {
+	var newBlocks []*ir.Block
+	var vals []value.Value
+	for _, c := range ctx.AllExpression() {
+		exprs, blocks, err := genCtx.GenerateExpr(block, c)
+		if err != nil {
+			return nil, nil, err
+		} else if blocks != nil {
+			newBlocks = append(newBlocks, blocks...)
+			block = newBlocks[len(newBlocks)-1]
+		}
+		vals = append(vals, exprs...)
+	}
+	return vals, newBlocks, nil
 }
 
 func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionContext) ([]value.Value, []*ir.Block, error) {
@@ -206,7 +242,7 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 				resVals := []value.Value{}
 				for _, ref := range outParams {
 					resVals = append(resVals,
-						block.NewLoad(ref.(*ir.InstAlloca).Typ.ElemType, ref),
+						block.NewLoad(ref.Type(), ref),
 					)
 				}
 				return resVals, blocks, nil

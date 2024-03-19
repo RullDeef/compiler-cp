@@ -171,22 +171,14 @@ type ConstVarContext interface {
 
 func (v *CodeGenVisitor) VisitConstVarSpec(block *ir.Block, ctx ConstVarContext) ([]*ir.Block, []string, []value.Value, error) {
 	// iota and inherited declarations not supported yet
-	var ids []string
-	for _, id := range ctx.IdentifierList().AllIDENTIFIER() {
-		ids = append(ids, id.GetText())
-	}
+	ids := v.genCtx.GenerateIdentList(ctx.IdentifierList())
 	var vals []value.Value
 	var blocks []*ir.Block
 	if ctx.ExpressionList() != nil {
-		for _, exp := range ctx.ExpressionList().AllExpression() {
-			exprs, newBlocks, err := v.genCtx.GenerateExpr(block, exp)
-			if err != nil {
-				return nil, nil, nil, err
-			} else if newBlocks != nil {
-				blocks = append(blocks, newBlocks...)
-				block = blocks[len(blocks)-1]
-			}
-			vals = append(vals, exprs...)
+		var err error
+		vals, blocks, err = v.genCtx.GenerateExprList(block, ctx.ExpressionList())
+		if err != nil {
+			return nil, nil, nil, err
 		}
 	} else if ctx.Type_() != nil {
 		// zero value init based on type
@@ -217,8 +209,8 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 	v.currentFuncIR = fun
 
 	// setup local var storage
-	v.genCtx.Vars = NewVarContext(v.genCtx.Vars)
-	defer func() { v.genCtx.Vars = v.genCtx.Vars.Parent }()
+	v.genCtx.PushLexicalScope()
+	defer v.genCtx.PopLexicalScope()
 
 	v.UID = 0
 
@@ -255,9 +247,10 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 }
 
 func (v *CodeGenVisitor) VisitBlock(block *ir.Block, ctx parser.IBlockContext) ([]*ir.Block, error) {
-	var blocks []*ir.Block
 	v.genCtx.PushLexicalScope()
 	defer v.genCtx.PopLexicalScope()
+
+	var blocks []*ir.Block
 	if ctx.StatementList() != nil {
 		for _, stmt := range ctx.StatementList().AllStatement() {
 			if newBlocks, err := v.VisitStatement(block, stmt); err != nil {
@@ -399,27 +392,18 @@ func (v *CodeGenVisitor) VisitIncDecStmt(block *ir.Block, ctx parser.IIncDecStmt
 }
 
 func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignmentContext) ([]*ir.Block, error) {
-	var newBlocks []*ir.Block
-	var lvals []value.Value
-	var rvals []value.Value
-	for i := range ctx.ExpressionList(0).AllExpression() {
-		// POTENTIALLY UNSAFE
-		exprs, blocks, err := v.genCtx.GenerateLValue(block, ctx.ExpressionList(0).Expression(i))
-		if err != nil {
-			return nil, err
-		} else if blocks != nil {
-			newBlocks = append(newBlocks, blocks...)
-			block = newBlocks[len(newBlocks)-1]
-		}
-		lvals = append(lvals, exprs...)
-		exprs, blocks, err = v.genCtx.GenerateExpr(block, ctx.ExpressionList(1).Expression(i))
-		if err != nil {
-			return nil, err
-		} else if blocks != nil {
-			newBlocks = append(newBlocks, blocks...)
-			block = newBlocks[len(newBlocks)-1]
-		}
-		rvals = append(rvals, exprs...)
+	lvals, newBlocks, err := v.genCtx.GenerateLValueList(block, ctx.ExpressionList(0))
+	if err != nil {
+		return nil, err
+	} else if newBlocks != nil {
+		block = newBlocks[len(newBlocks)-1]
+	}
+	rvals, blocks, err := v.genCtx.GenerateExprList(block, ctx.ExpressionList(1))
+	if err != nil {
+		return nil, err
+	} else if blocks != nil {
+		newBlocks = append(newBlocks, blocks...)
+		block = newBlocks[len(newBlocks)-1]
 	}
 	if len(lvals) != len(rvals) {
 		return nil, utils.MakeError("unmatched lvals(%d) and rvals(%d) count", len(lvals), len(rvals))
@@ -446,25 +430,13 @@ func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignment
 }
 
 func (v *CodeGenVisitor) VisitShortVarDecl(block *ir.Block, ctx parser.IShortVarDeclContext) ([]*ir.Block, error) {
-	var blocks []*ir.Block
-	var ids []string
-	var vals []value.Value
-	for i := range ctx.IdentifierList().AllIDENTIFIER() {
-		ids = append(ids, ctx.IdentifierList().IDENTIFIER(i).GetText())
+	vals, blocks, err := v.genCtx.GenerateExprList(block, ctx.ExpressionList())
+	if err != nil {
+		return nil, err
+	} else if blocks != nil {
+		block = blocks[len(blocks)-1]
 	}
-	for i := range ctx.ExpressionList().AllExpression() {
-		exprs, newBlocks, err := v.genCtx.GenerateExpr(
-			block,
-			ctx.ExpressionList().Expression(i),
-		)
-		if err != nil {
-			return nil, err
-		} else if newBlocks != nil {
-			blocks = append(blocks, newBlocks...)
-			block = blocks[len(blocks)-1]
-		}
-		vals = append(vals, exprs...)
-	}
+	ids := v.genCtx.GenerateIdentList(ctx.IdentifierList())
 	for i, val := range vals {
 		varName := ids[i]
 		if varName == "_" {
@@ -486,17 +458,11 @@ func (v *CodeGenVisitor) VisitReturnStmt(block *ir.Block, ctx parser.IReturnStmt
 		block.NewRet(nil)
 		return nil, nil
 	}
-	var newBlocks []*ir.Block
-	var vals []value.Value
-	for _, exprCtx := range ctx.ExpressionList().AllExpression() {
-		exprs, blocks, err := v.genCtx.GenerateExpr(block, exprCtx)
-		if err != nil {
-			return nil, err
-		} else if blocks != nil {
-			newBlocks = append(newBlocks, blocks...)
-			block = newBlocks[len(newBlocks)-1]
-		}
-		vals = append(vals, exprs...)
+	vals, newBlocks, err := v.genCtx.GenerateExprList(block, ctx.ExpressionList())
+	if err != nil {
+		return nil, err
+	} else if newBlocks != nil {
+		block = newBlocks[len(newBlocks)-1]
 	}
 	// match return types of function with value types
 	if len(vals) == 1 {
