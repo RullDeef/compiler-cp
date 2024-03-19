@@ -216,10 +216,16 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 
 	// populate function arguments
 	block := fun.NewBlock("entry")
-	for _, param := range fun.Params {
-		memRef := block.NewAlloca(param.Type())
-		block.NewStore(param, memRef)
-		v.genCtx.Vars.Add(param.Name(), memRef)
+	for i, param := range fun.Params {
+		if i < len(v.currentFuncDecl.ReturnTypes) && len(v.currentFuncDecl.ReturnTypes) > 1 {
+			// out parameter
+			v.genCtx.Vars.Add(param.Name(), param)
+		} else {
+			// regular parameter
+			memRef := block.NewAlloca(param.Type())
+			block.NewStore(param, memRef)
+			v.genCtx.Vars.Add(param.Name(), memRef)
+		}
 	}
 
 	// initialize & cleanup goto labels
@@ -410,19 +416,6 @@ func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignment
 	}
 	for i := range len(rvals) {
 		if lvals[i] != nil {
-		again:
-			dstPtrType, ok := lvals[i].Type().(*types.PointerType)
-			if !ok {
-				return nil, utils.MakeError("invalid store dst operand type; expected *types.Pointer, got %T", lvals[i].Type())
-			}
-			if !rvals[i].Type().Equal(dstPtrType.ElemType) {
-				// try loaded type
-				lvals[i] = typesystem.NewTypedValue(
-					block.NewLoad(rvals[i].Type(), lvals[i]),
-					dstPtrType.ElemType,
-				)
-				goto again
-			}
 			block.NewStore(rvals[i], lvals[i])
 		}
 	}
@@ -475,8 +468,7 @@ func (v *CodeGenVisitor) VisitReturnStmt(block *ir.Block, ctx parser.IReturnStmt
 			if !ok {
 				return nil, utils.MakeError("invalid function parameter: %s", pName)
 			}
-			outRef := block.NewLoad(outPar.Type().(*types.PointerType).ElemType, outPar)
-			block.NewStore(val, outRef)
+			block.NewStore(val, outPar)
 		}
 		block.NewRet(nil)
 	}

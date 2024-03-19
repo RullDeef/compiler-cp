@@ -233,7 +233,6 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 				outParams := []value.Value{}
 				irf, _ := genCtx.LookupFunc(funName)
 				for i := range funDecl.ReturnTypes {
-					// pName := irf.Params[i].Name()
 					ref := block.NewAlloca(irf.Params[i].Type().(*types.PointerType).ElemType)
 					outParams = append(outParams, ref)
 				}
@@ -241,9 +240,7 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 				block.NewCall(funRef, args...)
 				resVals := []value.Value{}
 				for _, ref := range outParams {
-					resVals = append(resVals,
-						block.NewLoad(ref.Type(), ref),
-					)
+					resVals = append(resVals, block.NewLoad(ref.Type().(*types.PointerType).ElemType, ref))
 				}
 				return resVals, blocks, nil
 			}
