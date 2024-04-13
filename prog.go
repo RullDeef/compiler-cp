@@ -5,11 +5,29 @@ type ListNode struct {
 	Value int
 }
 
-func traverse(node *ListNode) {
+func traverse_rec(node *ListNode) {
 	if node != nil {
-		printf("[%d] -> ", (*node).Value)
-		traverse((*node).Next)
+		printf("[%d] -> ", node.Value)
+		traverse_rec(node.Next)
 	}
+}
+
+func traverse(head *ListNode) {
+	traverse_rec(head)
+	printf("null\n")
+}
+
+func reverse(head *ListNode) *ListNode {
+	if head == nil {
+		return
+	}
+	var newList *ListNode
+	for head.Next != nil {
+		next := head.Next
+		head.Next = newList
+		newList = head
+	}
+	return newList
 }
 
 func main() {
@@ -21,5 +39,9 @@ func main() {
 	}
 	nodes[4].Value = 20
 
+	printf("initial list:\n")
+	traverse(&nodes[0])
+
+	printf("reversed list:\n")
 	traverse(&nodes[0])
 }

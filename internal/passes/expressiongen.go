@@ -136,7 +136,18 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			}
 			stp, ok := ptp.ElemType.(*typesystem.StructInfo)
 			if !ok {
-				return nil, nil, utils.MakeError("pointer to struct type expected for field accesor syntax")
+				// try pointer-to-pointer-to-struct
+				// to avoid syntax (*var).field
+				ptptp, ok := ptp.ElemType.(*types.PointerType)
+				if !ok {
+					return nil, nil, utils.MakeError("struct type expected for field accesor syntax")
+				}
+				stp, ok = ptptp.ElemType.(*typesystem.StructInfo)
+				if !ok {
+					return nil, nil, utils.MakeError("struct type expected for field accesor syntax")
+				}
+				ptp = ptptp
+				vals[0] = block.NewLoad(ptptp, vals[0])
 			}
 			fieldIdent := ctx.IDENTIFIER().GetText()
 			offset, fieldType, err := stp.ComputeOffset(fieldIdent)
@@ -330,8 +341,20 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 			}
 			stp, ok := ptp.ElemType.(*typesystem.StructInfo)
 			if !ok {
-				return nil, nil, utils.MakeError("pointer to struct type expected for field accesor syntax")
+				// try pointer-to-pointer-to-struct
+				// to avoid syntax (*var).field
+				ptptp, ok := ptp.ElemType.(*types.PointerType)
+				if !ok {
+					return nil, nil, utils.MakeError("struct type expected for field accesor syntax")
+				}
+				stp, ok = ptptp.ElemType.(*typesystem.StructInfo)
+				if !ok {
+					return nil, nil, utils.MakeError("struct type expected for field accesor syntax")
+				}
+				ptp = ptptp
+				vals[0] = block.NewLoad(ptptp, vals[0])
 			}
+			// TODO: reuse lvalue expr here
 			fieldIdent := ctx.IDENTIFIER().GetText()
 			offset, fieldType, err := stp.ComputeOffset(fieldIdent)
 			if err != nil {
