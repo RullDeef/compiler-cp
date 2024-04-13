@@ -47,6 +47,11 @@ func (si *StructInfo) String() string {
 	return fmt.Sprintf("%%%s", si.TypeName)
 }
 
+func (si *StructInfo) SetName(name string) {
+	si.StructType.SetName(name)
+	si.TypeName = name
+}
+
 // Equal reports whether t and u are of equal type.
 func (si *StructInfo) Equal(u types.Type) bool {
 	return si == u

@@ -67,7 +67,6 @@ func (m *typeManager) ParseAliasDecl(ctx parser.IAliasDeclContext) error {
 		return utils.MakeError(fmt.Sprintf("type %s already defined as alias to struct type", name))
 	}
 	if stp, ok := tp.(*typesystem.StructInfo); ok {
-		stp.TypeName = name
 		m.userStructs[name] = stp
 	} else {
 		m.userAliases[name] = tp
@@ -93,9 +92,8 @@ func (m *typeManager) ParseTypeDef(ctx parser.ITypeDefContext) error {
 		return err
 	}
 	if stp, ok := tp.(*typesystem.StructInfo); ok {
-		stp.TypeName = name
+		stp.SetName(name)
 		m.userStructs[name] = stp
-		// update recursion
 		stp.UpdateRecursiveRef(tmpInfo)
 	} else {
 		m.userAliases[name] = tp

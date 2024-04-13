@@ -270,7 +270,8 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 				return nil, nil, utils.MakeError("function declaration for %s not found", funName)
 			}
 			if funDecl.ReturnTypes == nil {
-				return nil, nil, nil
+				block.NewCall(funRef, args...)
+				return nil, blocks, nil
 			} else if len(funDecl.ReturnTypes) == 1 {
 				res := block.NewCall(funRef, args...)
 				return []value.Value{typesystem.NewTypedValue(res, funRef.Sig.RetType)}, blocks, nil
