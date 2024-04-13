@@ -47,13 +47,20 @@ func (genCtx *GenContext) GenerateLValue(block *ir.Block, ctx parser.IExpression
 			block = blocks[len(blocks)-1]
 		}
 		tp := subexprs[0].Type().(*types.PointerType).ElemType
-		if arrtp, ok := tp.(*types.ArrayType); ok {
-			return []value.Value{
-				block.NewGetElementPtr(arrtp.ElemType, subexprs[0], idxs[0]),
-			}, blocks, nil
-		} else {
-			return nil, nil, utils.MakeError("invalid type for indexing: %s", tp)
+		arrtp, ok := tp.(*types.ArrayType)
+		if !ok {
+			ptp, ok := tp.(*types.PointerType)
+			if !ok {
+				return nil, nil, utils.MakeError("invalid type for indexing: %s", tp)
+			}
+			arrtp, ok = ptp.ElemType.(*types.ArrayType)
+			if !ok {
+				return nil, nil, utils.MakeError("invalid type for indexing: %s", tp)
+			}
 		}
+		return []value.Value{
+			block.NewGetElementPtr(arrtp.ElemType, subexprs[0], idxs[0]),
+		}, blocks, nil
 	}
 	switch s := ctx.GetChild(0).(type) {
 	case parser.IPrimaryExprContext:
@@ -114,7 +121,18 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			}
 			atp, ok := ptp.ElemType.(*types.ArrayType)
 			if !ok {
-				return nil, nil, utils.MakeError("must be pointer to array type")
+				// try pointer-to-pointer-to-struct
+				// to avoid syntax (*var).field
+				ptptp, ok := ptp.ElemType.(*types.PointerType)
+				if !ok {
+					return nil, nil, utils.MakeError("must be pointer type")
+				}
+				atp, ok = ptptp.ElemType.(*types.ArrayType)
+				if !ok {
+					return nil, nil, utils.MakeError("must be pointer to array type")
+				}
+				ptp = ptptp
+				vals[0] = block.NewLoad(ptptp, vals[0])
 			}
 			return []value.Value{
 				// invalid source type when indexing array
@@ -475,7 +493,7 @@ func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpress
 		}
 		ptrtp2, ok := ptrtp.ElemType.(*types.PointerType)
 		if !ok {
-			return nil, nil, utils.MakeError("not pointer type deference")
+			return nil, nil, utils.MakeError("not pointer type dereference")
 		}
 		return []value.Value{
 			typesystem.NewTypedValue(

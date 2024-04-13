@@ -220,6 +220,9 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 	v.genCtx.PushLexicalScope()
 	defer v.genCtx.PopLexicalScope()
 
+	// setup defer stack
+	defer v.clearDeferStack()
+
 	v.UID = 0
 
 	// populate function arguments

@@ -6,15 +6,16 @@ type ListNode struct {
 }
 
 func traverse_rec(node *ListNode) {
-	if node != nil {
-		printf("[%d] -> ", node.Value)
-		traverse_rec(node.Next)
+	if node == nil {
+		return
 	}
+	defer traverse_rec(node.Next)
+	printf("[%d] -> ", node.Value)
 }
 
 func traverse(head *ListNode) {
+	defer printf("null\n")
 	traverse_rec(head)
-	printf("null\n")
 }
 
 func reverse(head *ListNode) *ListNode {
@@ -31,14 +32,17 @@ func reverse(head *ListNode) *ListNode {
 	return newList
 }
 
-func main() {
-	var nodes [5]ListNode
-
+func initList(nodes *[5]ListNode) {
 	for i := 0; i < 4; i++ {
 		nodes[i].Value = 5 * i
-		nodes[i].Next = &nodes[i+1]
+		nodes[i].Next = &(*nodes)[i+1]
 	}
 	nodes[4].Value = 20
+}
+
+func main() {
+	var nodes [5]ListNode
+	initList(&nodes)
 
 	printf("initial list:\n")
 	traverse(&nodes[0])
