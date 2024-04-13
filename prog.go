@@ -19,13 +19,14 @@ func traverse(head *ListNode) {
 
 func reverse(head *ListNode) *ListNode {
 	if head == nil {
-		return
+		return nil
 	}
 	var newList *ListNode
-	for head.Next != nil {
+	for head != nil {
 		next := head.Next
 		head.Next = newList
 		newList = head
+		head = next
 	}
 	return newList
 }
@@ -42,6 +43,8 @@ func main() {
 	printf("initial list:\n")
 	traverse(&nodes[0])
 
+	rev := reverse(&nodes[0])
+
 	printf("reversed list:\n")
-	traverse(&nodes[0])
+	traverse(rev)
 }

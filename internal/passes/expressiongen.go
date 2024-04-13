@@ -330,50 +330,15 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 			}, blocks, nil
 		} else if ctx.DOT() != nil {
 			// struct field accessor
-			vals, newBlocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr())
+			vals, newBlocks, err := genCtx.GeneratePrimaryLValue(block, ctx)
 			if err != nil {
 				return nil, nil, err
 			}
-			tp := vals[0].Type()
-			ptp, ok := tp.(*types.PointerType)
-			if !ok {
-				return nil, nil, utils.MakeError("pointer type expected for lvalue")
-			}
-			stp, ok := ptp.ElemType.(*typesystem.StructInfo)
-			if !ok {
-				// try pointer-to-pointer-to-struct
-				// to avoid syntax (*var).field
-				ptptp, ok := ptp.ElemType.(*types.PointerType)
-				if !ok {
-					return nil, nil, utils.MakeError("struct type expected for field accesor syntax")
-				}
-				stp, ok = ptptp.ElemType.(*typesystem.StructInfo)
-				if !ok {
-					return nil, nil, utils.MakeError("struct type expected for field accesor syntax")
-				}
-				ptp = ptptp
-				vals[0] = block.NewLoad(ptptp, vals[0])
-			}
-			// TODO: reuse lvalue expr here
-			fieldIdent := ctx.IDENTIFIER().GetText()
-			offset, fieldType, err := stp.ComputeOffset(fieldIdent)
-			if err != nil {
-				return nil, nil, err
-			}
-			elem, ok := ptp.ElemType.(*typesystem.StructInfo)
-			if ok {
-				tp = &elem.StructType
-			} else {
-				tp = ptp.ElemType
-			}
-			// generate GEP
+			// generate load
 			return []value.Value{
 				block.NewLoad(
-					fieldType,
-					typesystem.NewTypedValue(
-						block.NewGetElementPtr(tp, vals[0], constant.NewInt(types.I32, 0), constant.NewInt(types.I32, int64(offset))),
-						types.NewPointer(fieldType),
-					),
+					vals[0].Type().(*types.PointerType).ElemType,
+					vals[0],
 				),
 			}, newBlocks, nil
 		}
