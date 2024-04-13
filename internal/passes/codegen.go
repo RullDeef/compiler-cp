@@ -26,6 +26,7 @@ type CodeGenVisitor struct {
 	loopStack    []loopBlocks // break + continue
 	labelManager              // goto handling
 	deferManager              // defer handling
+	*typeManager              // user defined types handling
 }
 
 func NewCodeGenVisitor(pdata *PackageData) (*CodeGenVisitor, error) {
@@ -36,6 +37,7 @@ func NewCodeGenVisitor(pdata *PackageData) (*CodeGenVisitor, error) {
 	return &CodeGenVisitor{
 		packageData: pdata,
 		genCtx:      genCtx,
+		typeManager: pdata.typeManager,
 	}, nil
 }
 
@@ -64,6 +66,10 @@ func (v *CodeGenVisitor) VisitSourceFile(ctx parser.ISourceFileContext) (*ir.Mod
 
 	// build real main function
 	module := v.genCtx.Module()
+
+	// update type defs
+	v.typeManager.UpdateModule(module)
+
 	var mainFun *ir.Func
 	for _, fun := range module.Funcs {
 		if fun.Name() == v.packageData.PackageName+"__main" {
@@ -110,7 +116,9 @@ func (v *CodeGenVisitor) VisitDeclaration(block *ir.Block, globalScope bool, ctx
 		}
 		return newBlocks, nil
 	} else if ctx.TypeDecl() != nil {
-		return nil, utils.MakeError("type declarations not supported yet")
+		// err := v.ParseTypeDecl(ctx.TypeDecl())
+		// return nil, err
+		return nil, nil
 	} else {
 		panic("must never happen")
 	}
@@ -182,7 +190,7 @@ func (v *CodeGenVisitor) VisitConstVarSpec(block *ir.Block, ctx ConstVarContext)
 		}
 	} else if ctx.Type_() != nil {
 		// zero value init based on type
-		llvmType, err := ParseType(ctx.Type_())
+		llvmType, err := v.ParseType(ctx.Type_())
 		if err != nil {
 			return nil, nil, nil, err
 		}

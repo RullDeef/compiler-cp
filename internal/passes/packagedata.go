@@ -13,6 +13,8 @@ type PackageData struct {
 
 	Functions map[string]*FunctionDecl
 	Methods   map[string]map[string]*FunctionDecl // receiver type -> method name -> decl
+
+	*typeManager
 }
 type ImportAlias struct {
 	Path  string
@@ -40,8 +42,9 @@ func NewPackageListener() *PackageListener {
 	return &PackageListener{
 		BaseGoParserListener: parser.BaseGoParserListener{},
 		pdata: &PackageData{
-			Functions: make(map[string]*FunctionDecl),
-			Methods:   make(map[string]map[string]*FunctionDecl),
+			Functions:   make(map[string]*FunctionDecl),
+			Methods:     make(map[string]map[string]*FunctionDecl),
+			typeManager: newTypeManager(),
 		},
 	}
 }
@@ -69,6 +72,14 @@ func (v *PackageListener) EnterImportSpec(ctx *parser.ImportSpecContext) {
 	})
 }
 
+func (v *PackageListener) EnterTypeDecl(ctx *parser.TypeDeclContext) {
+	print("entered type declaration!")
+	err := v.pdata.ParseTypeDecl(ctx)
+	if err != nil {
+		print("error is not nil!! on enter type decl")
+	}
+}
+
 func (v *PackageListener) EnterFunctionDecl(ctx *parser.FunctionDeclContext) {
 	fundec, err := v.ParseSignature(ctx.Signature().(*parser.SignatureContext))
 	if err != nil {
@@ -89,7 +100,7 @@ func (v *PackageListener) EnterMethodDecl(ctx *parser.MethodDeclContext) {
 	fundec.Name = ctx.IDENTIFIER().GetText()
 	// parse receiver
 	rDecl := ctx.Receiver().Parameters().ParameterDecl(0)
-	fundec.Receiver, err = ParseType(rDecl.Type_())
+	fundec.Receiver, err = v.pdata.ParseType(rDecl.Type_())
 	if err != nil {
 		v.err = err
 		return
@@ -114,7 +125,7 @@ func (v *PackageListener) ParseSignature(ctx parser.ISignatureContext) (*Functio
 	if ctx.Result() != nil {
 		// single return value
 		if ctx.Result().Type_() != nil {
-			tp, err := ParseType(ctx.Result().Type_())
+			tp, err := v.pdata.ParseType(ctx.Result().Type_())
 			if err != nil {
 				return nil, err
 			}
@@ -137,7 +148,7 @@ func (v *PackageListener) ParseParameters(ctx parser.IParametersContext) ([]stri
 	var names []string
 	var types []types.Type
 	for _, child := range ctx.AllParameterDecl() {
-		newNames, newTypes, err := ParseParameterDecl(child)
+		newNames, newTypes, err := v.ParseParameterDecl(child)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -147,8 +158,8 @@ func (v *PackageListener) ParseParameters(ctx parser.IParametersContext) ([]stri
 	return names, types, nil
 }
 
-func ParseParameterDecl(ctx parser.IParameterDeclContext) ([]string, []types.Type, error) {
-	type_, err := ParseType(ctx.Type_())
+func (v *PackageListener) ParseParameterDecl(ctx parser.IParameterDeclContext) ([]string, []types.Type, error) {
+	type_, err := v.pdata.ParseType(ctx.Type_())
 	if err != nil {
 		return nil, nil, err
 	}

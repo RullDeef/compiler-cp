@@ -93,7 +93,8 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			}
 			return []value.Value{vals[0], vals[0]}, blocks, nil
 		} else if ctx.Index() != nil {
-			vals, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx)
+			// array indexing
+			vals, blocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr())
 			if err != nil {
 				return nil, nil, err
 			} else if blocks != nil {
@@ -106,10 +107,55 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 				blocks = append(blocks, newBlocks...)
 				block = blocks[len(blocks)-1]
 			}
+			tp := vals[0].Type()
+			ptp, ok := tp.(*types.PointerType)
+			if !ok {
+				return nil, nil, utils.MakeError("must be pointer type")
+			}
+			atp, ok := ptp.ElemType.(*types.ArrayType)
+			if !ok {
+				return nil, nil, utils.MakeError("must be pointer to array type")
+			}
 			return []value.Value{
-				block.NewGetElementPtr(
-					vals[0].Type().(*types.PointerType).ElemType, vals[0], idx[0]),
+				// invalid source type when indexing array
+				typesystem.NewTypedValue(
+					block.NewGetElementPtr(ptp.ElemType, vals[0], constant.NewInt(types.I32, 0), idx[0]),
+					types.NewPointer(atp.ElemType),
+				),
 			}, blocks, nil
+		} else if ctx.DOT() != nil {
+			// accessor to struct field
+			vals, newBlocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr())
+			if err != nil {
+				return nil, nil, err
+			}
+			tp := vals[0].Type()
+			ptp, ok := tp.(*types.PointerType)
+			if !ok {
+				return nil, nil, utils.MakeError("pointer type expected for lvalue")
+			}
+			stp, ok := ptp.ElemType.(*typesystem.StructInfo)
+			if !ok {
+				return nil, nil, utils.MakeError("pointer to struct type expected for field accesor syntax")
+			}
+			fieldIdent := ctx.IDENTIFIER().GetText()
+			offset, fieldType, err := stp.ComputeOffset(fieldIdent)
+			if err != nil {
+				return nil, nil, err
+			}
+			elem, ok := ptp.ElemType.(*typesystem.StructInfo)
+			if ok {
+				tp = &elem.StructType
+			} else {
+				tp = ptp.ElemType
+			}
+			// generate GEP
+			return []value.Value{
+				typesystem.NewTypedValue(
+					block.NewGetElementPtr(tp, vals[0], constant.NewInt(types.I32, 0), constant.NewInt(types.I32, int64(offset))),
+					types.NewPointer(fieldType),
+				),
+			}, newBlocks, nil
 		}
 	}
 	return nil, nil, utils.MakeError("lvalue for primary expression not implemented")
@@ -260,12 +306,52 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 				block = blocks[len(blocks)-1]
 			}
 			elemTp := exprs[0].Type().(*types.PointerType).ElemType.(*types.ArrayType).ElemType
+			// if this is struct type - prepare for later field accessing
 			return []value.Value{
 				block.NewLoad(
 					elemTp,
-					block.NewGetElementPtr(elemTp, exprs[0], idxs[0]),
+					typesystem.NewTypedValue(
+						block.NewGetElementPtr(exprs[0].Type(), exprs[0], constant.NewInt(types.I32, 0), idxs[0]),
+						elemTp,
+					),
 				),
 			}, blocks, nil
+		} else if ctx.DOT() != nil {
+			// struct field accessor
+			vals, newBlocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr())
+			if err != nil {
+				return nil, nil, err
+			}
+			tp := vals[0].Type()
+			ptp, ok := tp.(*types.PointerType)
+			if !ok {
+				return nil, nil, utils.MakeError("pointer type expected for lvalue")
+			}
+			stp, ok := ptp.ElemType.(*typesystem.StructInfo)
+			if !ok {
+				return nil, nil, utils.MakeError("pointer to struct type expected for field accesor syntax")
+			}
+			fieldIdent := ctx.IDENTIFIER().GetText()
+			offset, fieldType, err := stp.ComputeOffset(fieldIdent)
+			if err != nil {
+				return nil, nil, err
+			}
+			elem, ok := ptp.ElemType.(*typesystem.StructInfo)
+			if ok {
+				tp = &elem.StructType
+			} else {
+				tp = ptp.ElemType
+			}
+			// generate GEP
+			return []value.Value{
+				block.NewLoad(
+					fieldType,
+					typesystem.NewTypedValue(
+						block.NewGetElementPtr(tp, vals[0], constant.NewInt(types.I32, 0), constant.NewInt(types.I32, int64(offset))),
+						types.NewPointer(fieldType),
+					),
+				),
+			}, newBlocks, nil
 		}
 	}
 	return nil, nil, utils.MakeError("unimplemented primary expression: %s", ctx.GetText())
@@ -413,7 +499,7 @@ func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpress
 }
 
 func (genCtx *GenContext) GenerateMulExpr(block *ir.Block, left, right value.Value) ([]value.Value, []*ir.Block, error) {
-	if resType, ok := typesystem.CommonSupertype(left.Type(), right.Type()); !ok {
+	if resType, ok := typesystem.CommonSupertype(left, right); !ok {
 		return nil, nil, utils.MakeError("failed to deduce common type for %v and %v", left.Type(), right.Type())
 	} else if typesystem.IsIntType(resType) || typesystem.IsUintType(resType) {
 		return []value.Value{
@@ -429,7 +515,7 @@ func (genCtx *GenContext) GenerateMulExpr(block *ir.Block, left, right value.Val
 }
 
 func (genCtx *GenContext) GenerateDivExpr(block *ir.Block, left, right value.Value) ([]value.Value, []*ir.Block, error) {
-	if resType, ok := typesystem.CommonSupertype(left.Type(), right.Type()); !ok {
+	if resType, ok := typesystem.CommonSupertype(left, right); !ok {
 		return nil, nil, utils.MakeError("failed to deduce common type for %v and %v", left.Type(), right.Type())
 	} else if typesystem.IsIntType(resType) {
 		return []value.Value{
@@ -449,7 +535,7 @@ func (genCtx *GenContext) GenerateDivExpr(block *ir.Block, left, right value.Val
 }
 
 func (genCtx *GenContext) GenerateModExpr(block *ir.Block, left, right value.Value) ([]value.Value, []*ir.Block, error) {
-	if resType, ok := typesystem.CommonSupertype(left.Type(), right.Type()); !ok {
+	if resType, ok := typesystem.CommonSupertype(left, right); !ok {
 		return nil, nil, utils.MakeError("failed to deduce common type for %v and %v", left.Type(), right.Type())
 	} else if typesystem.IsIntType(resType) {
 		return []value.Value{
@@ -465,7 +551,7 @@ func (genCtx *GenContext) GenerateModExpr(block *ir.Block, left, right value.Val
 }
 
 func (genCtx *GenContext) GenerateAddExpr(block *ir.Block, left, right value.Value) ([]value.Value, []*ir.Block, error) {
-	if resType, ok := typesystem.CommonSupertype(left.Type(), right.Type()); !ok {
+	if resType, ok := typesystem.CommonSupertype(left, right); !ok {
 		return nil, nil, utils.MakeError("failed to deduce common type for %v and %v", left.Type(), right.Type())
 	} else if typesystem.IsIntType(resType) || typesystem.IsUintType(resType) {
 		return []value.Value{
@@ -481,7 +567,7 @@ func (genCtx *GenContext) GenerateAddExpr(block *ir.Block, left, right value.Val
 }
 
 func (genCtx *GenContext) GenerateSubExpr(block *ir.Block, left, right value.Value) ([]value.Value, []*ir.Block, error) {
-	if resType, ok := typesystem.CommonSupertype(left.Type(), right.Type()); !ok {
+	if resType, ok := typesystem.CommonSupertype(left, right); !ok {
 		return nil, nil, utils.MakeError("failed to deduce common type for %v and %v", left.Type(), right.Type())
 	} else if typesystem.IsIntType(resType) || typesystem.IsUintType(resType) {
 		return []value.Value{
@@ -497,7 +583,7 @@ func (genCtx *GenContext) GenerateSubExpr(block *ir.Block, left, right value.Val
 }
 
 func (genCtx *GenContext) GenerateRelExpr(block *ir.Block, left, right value.Value, ctx parser.IExpressionContext) ([]value.Value, []*ir.Block, error) {
-	resType, ok := typesystem.CommonSupertype(left.Type(), right.Type())
+	resType, ok := typesystem.CommonSupertype(left, right)
 	if !ok {
 		return nil, nil, utils.MakeError("failed to deduce common type for %v and %v", left.Type(), right.Type())
 	}

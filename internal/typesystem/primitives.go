@@ -3,6 +3,7 @@ package typesystem
 import (
 	"gocomp/internal/utils"
 
+	"github.com/llir/llvm/ir/constant"
 	"github.com/llir/llvm/ir/types"
 	"github.com/llir/llvm/ir/value"
 )
@@ -68,11 +69,20 @@ func IsFloatType(t types.Type) bool {
 	return ok
 }
 
-func CommonSupertype(t1, t2 types.Type) (types.Type, bool) {
-	if t1 == t2 {
+func CommonSupertype(v1, v2 value.Value) (types.Type, bool) {
+	t1 := v1.Type()
+	t2 := v2.Type()
+	_, null1 := v1.(*constant.Null)
+	_, null2 := v2.(*constant.Null)
+	if null1 && null2 {
+		panic("both must not be null")
+	} else if null1 {
+		return t2, true
+	} else if null2 {
+		return t1, true
+	} else if t1 == t2 {
 		return t1, true
 	}
-
 	return nil, false
 }
 
