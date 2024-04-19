@@ -42,19 +42,16 @@ func NewCodeGenVisitor(pdata *PackageData) (*CodeGenVisitor, error) {
 }
 
 func (v *CodeGenVisitor) VisitSourceFile(ctx parser.ISourceFileContext) (*ir.Module, error) {
-	// gather global declarations
-	ctorFun := ir.NewFunc(fmt.Sprintf("%s_init", v.packageData.PackageName), types.Void)
-	globalInitBlocks := []*ir.Block{ir.NewBlock("entry")}
-	for _, decl := range ctx.AllDeclaration() {
-		blocks, err := v.VisitDeclaration(globalInitBlocks[len(globalInitBlocks)-1], true, decl)
-		if err != nil {
-			return nil, err
-		} else if blocks != nil {
-			globalInitBlocks = append(globalInitBlocks, blocks...)
-		}
+	// build real main function
+	module := v.genCtx.Module()
+	ctorFun, err := v.buildCtorFunc(module, ctx)
+	if err != nil {
+		return nil, err
 	}
-	globalInitBlocks[len(globalInitBlocks)-1].NewRet(nil)
-	ctorFun.Blocks = globalInitBlocks
+	dtorFun, err := v.buildDtorFunc(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	// add code for each function declaration
 	for _, fun := range ctx.AllFunctionDecl() {
@@ -63,9 +60,6 @@ func (v *CodeGenVisitor) VisitSourceFile(ctx parser.ISourceFileContext) (*ir.Mod
 			return nil, utils.MakeError("failed to parse func %s: %w", fun.IDENTIFIER().GetText(), res.(error))
 		}
 	}
-
-	// build real main function
-	module := v.genCtx.Module()
 
 	// update type defs
 	v.typeManager.UpdateModule(module)
@@ -80,14 +74,46 @@ func (v *CodeGenVisitor) VisitSourceFile(ctx parser.ISourceFileContext) (*ir.Mod
 	if mainFun == nil {
 		return nil, utils.MakeError("main function not found")
 	}
-	module.Funcs = append(module.Funcs, ctorFun)
+	module.Funcs = append(module.Funcs, ctorFun, dtorFun)
 	realMainFun := module.NewFunc("main", types.I32)
 	realMainEntry := realMainFun.NewBlock("entry")
 	realMainEntry.NewCall(ctorFun)
 	realMainEntry.NewCall(mainFun)
+	realMainEntry.NewCall(dtorFun)
 	realMainEntry.NewRet(constant.NewInt(types.I32, 0))
 
 	return module, nil
+}
+
+func (v *CodeGenVisitor) buildCtorFunc(module *ir.Module, ctx parser.ISourceFileContext) (*ir.Func, error) {
+	// gather global declarations
+	ctorFun := ir.NewFunc(fmt.Sprintf("%s_init", v.packageData.PackageName), types.Void)
+	globalInitBlocks := []*ir.Block{ir.NewBlock("entry")}
+	// initialize defer stack
+	v.deferManager.initDeferStack(module, globalInitBlocks[0])
+
+	for _, decl := range ctx.AllDeclaration() {
+		blocks, err := v.VisitDeclaration(globalInitBlocks[len(globalInitBlocks)-1], true, decl)
+		if err != nil {
+			return nil, err
+		} else if blocks != nil {
+			globalInitBlocks = append(globalInitBlocks, blocks...)
+		}
+	}
+	globalInitBlocks[len(globalInitBlocks)-1].NewRet(nil)
+	ctorFun.Blocks = globalInitBlocks
+	return ctorFun, nil
+}
+
+func (v *CodeGenVisitor) buildDtorFunc(ctx parser.ISourceFileContext) (*ir.Func, error) {
+	dtorFun := ir.NewFunc(fmt.Sprintf("%s_cleanup", v.packageData.PackageName), types.Void)
+	globalInitBlocks := []*ir.Block{ir.NewBlock("entry")}
+	// cleanup defer stack
+	// v.deferManager.cleanupStack(module, globalInitBlocks[0])
+
+	globalInitBlocks[len(globalInitBlocks)-1].NewRet(nil)
+	dtorFun.Blocks = globalInitBlocks
+	return dtorFun, nil
 }
 
 func (v *CodeGenVisitor) VisitDeclaration(block *ir.Block, globalScope bool, ctx parser.IDeclarationContext) ([]*ir.Block, error) {

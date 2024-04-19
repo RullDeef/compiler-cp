@@ -335,15 +335,33 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 				blocks = append(blocks, newBlocks...)
 				block = blocks[len(blocks)-1]
 			}
-			elemTp := exprs[0].Type().(*types.PointerType).ElemType.(*types.ArrayType).ElemType
-			// if this is struct type - prepare for later field accessing
+			tp := exprs[0].Type()
+			ptp, ok := tp.(*types.PointerType)
+			if !ok {
+				return nil, nil, utils.MakeError("must be pointer type")
+			}
+			atp, ok := ptp.ElemType.(*types.ArrayType)
+			if !ok {
+				// try pointer-to-pointer-to-struct
+				// to avoid syntax (*var).field
+				ptptp, ok := ptp.ElemType.(*types.PointerType)
+				if !ok {
+					return nil, nil, utils.MakeError("must be pointer type")
+				}
+				atp, ok = ptptp.ElemType.(*types.ArrayType)
+				if !ok {
+					return nil, nil, utils.MakeError("must be pointer to array type")
+				}
+				ptp = ptptp
+				exprs[0] = block.NewLoad(ptptp, exprs[0])
+			}
 			return []value.Value{
-				block.NewLoad(
-					elemTp,
-					typesystem.NewTypedValue(
-						block.NewGetElementPtr(exprs[0].Type(), exprs[0], constant.NewInt(types.I32, 0), idxs[0]),
-						elemTp,
+				typesystem.NewTypedValue(
+					block.NewLoad(
+						atp.ElemType,
+						block.NewGetElementPtr(atp.ElemType, exprs[0], idxs[0]),
 					),
+					atp.ElemType,
 				),
 			}, blocks, nil
 		} else if ctx.DOT() != nil {
