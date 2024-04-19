@@ -1,5 +1,5 @@
 SRCS := $(wildcard internal/**/*.go)
-TSTS := $(wildcard tests/*.go)
+TSTS := $(wildcard tests/*)
 CHK_TSTS := $(subst tests,.test,$(subst .go,,$(TSTS)))
 
 .PHONY: run test
@@ -11,12 +11,12 @@ run: prog.exe
 test: $(CHK_TSTS)
 	@echo tests completed
 
-$(CHK_TSTS): .test/%: tests/%.go $(SRCS)
+$(CHK_TSTS): .test/%: tests/%/main.go $(SRCS)
 	@mkdir -p $(dir $@)
 	@echo [[COMPILING TEST $<]]
-	@cat $< | go run ./cmd/compiler | llc-18 | clang -o $@ -x assembler -
+	@cat $< | go run ./cmd/compiler | tee $(dir $<)/main.ll | llc-18 | tee $(dir $<)/main-opt.ll | clang -o $@ -x assembler -
 	@echo [[RUNNING TEST $<]]
-	@./$@
+	@./$@ < $(basename $(dir $<))/in.txt | diff - $(basename $(dir $<))/out.txt
 
 prog.exe: prog.s
 	clang -o $@ $^

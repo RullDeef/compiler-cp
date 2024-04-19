@@ -7,6 +7,7 @@ import (
 	"gocomp/internal/utils"
 	"strconv"
 
+	"github.com/antlr4-go/antlr/v4"
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
 	"github.com/llir/llvm/ir/enum"
@@ -280,13 +281,18 @@ func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionCo
 func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrimaryExprContext) ([]value.Value, []*ir.Block, error) {
 	if ctx.Operand() != nil {
 		return genCtx.GenerateOperand(block, ctx.Operand())
+	} else if ctx.Conversion() != nil {
+		return nil, nil, utils.MakeError("type conversions are not supported yet")
+	} else if ctx.MethodExpr() != nil {
+		return nil, nil, utils.MakeError("method exprs not supported yet")
 	} else if ctx.PrimaryExpr() != nil {
+		// function call
 		if ctx.Arguments() != nil {
-			// function call
-			funName := ctx.PrimaryExpr().Operand().OperandName().IDENTIFIER().GetText()
-			funRef, err := genCtx.LookupFunc(funName)
+			exprs, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx.PrimaryExpr())
 			if err != nil {
 				return nil, nil, err
+			} else if blocks != nil {
+				block = blocks[len(blocks)-1]
 			}
 			args, blocks, err := genCtx.GenerateArguments(block, ctx.Arguments())
 			if err != nil {
@@ -294,9 +300,13 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 			} else if blocks != nil {
 				block = blocks[len(blocks)-1]
 			}
-			funDecl, err := genCtx.LookupFuncDecl(funName)
+			funRef, ok := exprs[0].(*ir.Func)
+			if !ok {
+				return nil, nil, utils.MakeError("value %+v is not a func ref", exprs[0])
+			}
+			funDecl, err := genCtx.LookupFuncDeclByIR(funRef)
 			if err != nil {
-				return nil, nil, utils.MakeError("function declaration for %s not found", funName)
+				return nil, nil, utils.MakeError("function declaration for %s not found", funRef.String())
 			}
 			if funDecl.ReturnTypes == nil {
 				block.NewCall(funRef, args...)
@@ -307,9 +317,8 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 			} else if len(funDecl.ReturnTypes) > 1 {
 				// additional out parameters in front of explicit ones
 				outParams := []value.Value{}
-				irf, _ := genCtx.LookupFunc(funName)
 				for i := range funDecl.ReturnTypes {
-					ref := block.NewAlloca(irf.Params[i].Type().(*types.PointerType).ElemType)
+					ref := block.NewAlloca(funRef.Params[i].Type().(*types.PointerType).ElemType)
 					outParams = append(outParams, ref)
 				}
 				args = append(outParams, args...)
@@ -365,6 +374,21 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 				),
 			}, blocks, nil
 		} else if ctx.DOT() != nil {
+			exprs, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx.PrimaryExpr())
+			if err != nil {
+				return nil, nil, err
+			} else if blocks != nil {
+				block = blocks[len(blocks)-1]
+			}
+			// module name resolution
+			if exprs[0].Type().Equal(typesystem.GoModuleType) {
+				name := ctx.IDENTIFIER().GetText()
+				val, err := genCtx.LookupNameInModule(exprs[0].(*typesystem.GoModule).Name, name)
+				if err != nil {
+					return nil, nil, err
+				}
+				return []value.Value{val}, blocks, nil
+			}
 			// struct field accessor
 			vals, newBlocks, err := genCtx.GeneratePrimaryLValue(block, ctx)
 			if err != nil {
@@ -405,19 +429,23 @@ func (genCtx *GenContext) GenerateOperand(block *ir.Block, ctx parser.IOperandCo
 	if ctx.Literal() != nil {
 		return genCtx.GenerateLiteralExpr(block, ctx.Literal())
 	} else if ctx.OperandName() != nil {
-		// lookup value
-		varName := ctx.OperandName().IDENTIFIER().GetText()
-		if val, ok := genCtx.Vars.Lookup(varName); !ok {
-			return nil, nil, utils.MakeError("variable %s not defined in this scope", varName)
-		} else {
-			ld := block.NewLoad(val.Type().(*types.PointerType).ElemType, val)
+		operandName := ctx.OperandName().IDENTIFIER().GetText()
+		if val, ok := genCtx.Vars.Lookup(operandName); ok {
+			elTp := val.Type().(*types.PointerType).ElemType
 			return []value.Value{
 				typesystem.NewTypedValue(
-					ld,
-					val.Type().(*types.PointerType).ElemType,
+					block.NewLoad(elTp, val),
+					elTp,
 				),
 			}, nil, nil
 		}
+		if module, ok := genCtx.PackageData.LookupModule(operandName); ok {
+			return []value.Value{module}, nil, nil
+		}
+		if funRef, err := genCtx.LookupFunc(operandName); err == nil {
+			return []value.Value{funRef}, nil, nil
+		}
+		return nil, nil, utils.MakeError("name %s not defined in this scope", operandName)
 	} else if ctx.Expression() != nil {
 		return genCtx.GenerateExpr(block, ctx.Expression())
 	}
@@ -643,27 +671,28 @@ func (genCtx *GenContext) GenerateRelExpr(block *ir.Block, left, right value.Val
 			cmpPred = enum.IPredNE
 		} else if ctx.LESS() != nil {
 			if _, ok := resType.(*types.IntType); ok {
-				cmpPred = enum.IPredULT
-			} else {
 				cmpPred = enum.IPredSLT
+			} else {
+				cmpPred = enum.IPredULT
 			}
 		} else if ctx.LESS_OR_EQUALS() != nil {
 			if _, ok := resType.(*types.IntType); ok {
-				cmpPred = enum.IPredULE
-			} else {
 				cmpPred = enum.IPredSLE
+			} else {
+				// TODO: fix unsigned int handling
+				cmpPred = enum.IPredULE
 			}
 		} else if ctx.GREATER() != nil {
 			if _, ok := resType.(*types.IntType); ok {
-				cmpPred = enum.IPredUGT
-			} else {
 				cmpPred = enum.IPredSGT
+			} else {
+				cmpPred = enum.IPredUGT
 			}
 		} else if ctx.GREATER_OR_EQUALS() != nil {
 			if _, ok := resType.(*types.IntType); ok {
-				cmpPred = enum.IPredUGE
-			} else {
 				cmpPred = enum.IPredSGE
+			} else {
+				cmpPred = enum.IPredUGE
 			}
 		} else {
 			return nil, nil, utils.MakeError("must never happen")
@@ -699,4 +728,9 @@ func (genCtx *GenContext) GenerateOrExpr(block *ir.Block, left, right value.Valu
 	return []value.Value{
 		typesystem.NewTypedValue(block.NewOr(left, right), typesystem.Bool),
 	}, nil, nil
+}
+
+// helper function for debugging to print out current context state (position)
+func PrintCurrentState(ctx *antlr.BaseParserRuleContext) {
+	fmt.Println(ctx.GetText())
 }

@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 type ListNode struct {
 	Next  *ListNode
 	Value int
@@ -10,11 +12,11 @@ func traverse_rec(node *ListNode) {
 		return
 	}
 	defer traverse_rec(node.Next)
-	printf("[%d] -> ", node.Value)
+	fmt.Printf("[%d] -> ", node.Value)
 }
 
 func traverse(head *ListNode) {
-	defer printf("null\n")
+	defer fmt.Printf("null\n")
 	traverse_rec(head)
 }
 
@@ -44,11 +46,11 @@ func main() {
 	var nodes [5]ListNode
 	initList(&nodes)
 
-	printf("initial list:\n")
+	fmt.Printf("initial list:\n")
 	traverse(&nodes[0])
 
 	rev := reverse(&nodes[0])
 
-	printf("reversed list:\n")
+	fmt.Printf("reversed list:\n")
 	traverse(rev)
 }

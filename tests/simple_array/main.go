@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 func main() {
 	var arr [10]int
 	arr[0] = 100
@@ -10,7 +12,7 @@ func main() {
 	}
 
 	for i = 0; i < 10; i++ {
-		printf("%d ", arr[i])
+		fmt.Printf("%d ", arr[i])
 	}
-	printf("\n")
+	fmt.Printf("\n")
 }

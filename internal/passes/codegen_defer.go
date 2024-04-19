@@ -71,15 +71,16 @@ func (v *CodeGenVisitor) VisitDeferStmt(block *ir.Block, ctx parser.IDeferStmtCo
 	if primExpr2 == nil {
 		return nil, utils.MakeError("defer statement must be function or method call")
 	}
-	funName := primExpr2.Operand().OperandName().GetText()
-	funRef, err := v.genCtx.LookupFunc(funName)
+	exprs, blocks, err := v.genCtx.GeneratePrimaryExpr(block, primExpr2)
 	if err != nil {
 		return nil, err
+	} else if blocks != nil {
+		block = blocks[len(blocks)-1]
 	}
 	args, blocks, err := v.genCtx.GenerateArguments(block, primExpr.Arguments())
 	if err != nil {
 		return nil, err
 	}
-	v.deferManager.pushDeferCall(funRef, args)
+	v.deferManager.pushDeferCall(exprs[0].(*ir.Func), args)
 	return blocks, nil
 }

@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 // simple multiple return functions
 
 func safeDivide(x, y int) (int, bool) {
@@ -34,6 +36,6 @@ func main() {
 
 	a, b, c := sort3(40.9, 21.0, 167.0)
 
-	printf("res = %d, ok = %d\n", res, ok)
-	printf("a = %f, b = %f, c = %f\n", a, b, c)
+	fmt.Printf("res = %d, ok = %d\n", res, ok)
+	fmt.Printf("a = %f, b = %f, c = %f\n", a, b, c)
 }

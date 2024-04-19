@@ -2,6 +2,7 @@ package passes
 
 import (
 	"gocomp/internal/parser"
+	"gocomp/internal/typesystem"
 	"strings"
 
 	"github.com/llir/llvm/ir/types"
@@ -19,6 +20,15 @@ type PackageData struct {
 type ImportAlias struct {
 	Path  string
 	Alias string
+}
+
+func (pd *PackageData) LookupModule(module string) (*typesystem.GoModule, bool) {
+	for _, imp := range pd.Imports {
+		if imp.Alias == module || imp.Path == module {
+			return &typesystem.GoModule{Name: imp.Path}, true
+		}
+	}
+	return nil, false
 }
 
 type FunctionDecl struct {

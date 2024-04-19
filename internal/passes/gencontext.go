@@ -6,6 +6,7 @@ import (
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/types"
+	"github.com/llir/llvm/ir/value"
 )
 
 type GenContext struct {
@@ -35,18 +36,19 @@ func NewGenContext(pdata *PackageData) (*GenContext, error) {
 	// populate global functions (like printf)
 	fun := ir.NewFunc("printf", types.I32, ir.NewParam("format", types.I8Ptr))
 	fun.Sig.Variadic = true
-	ctx.SpecialFuncs["printf"] = fun
-	ctx.SpecialFuncDecls["printf"] = &FunctionDecl{
-		Name:        "printf",
+	ctx.SpecialFuncs["fmt__Printf"] = fun
+	ctx.SpecialFuncDecls["fmt__Printf"] = &FunctionDecl{
+		Name:        "fmt__Printf",
 		ArgNames:    []string{"format"},
 		ArgTypes:    []types.Type{types.I8Ptr},
 		ReturnTypes: []types.Type{types.I32},
 	}
+
 	fun = ir.NewFunc("scanf", types.I32, ir.NewParam("format", types.I8Ptr))
 	fun.Sig.Variadic = true
-	ctx.SpecialFuncs["scanf"] = fun
-	ctx.SpecialFuncDecls["scanf"] = &FunctionDecl{
-		Name:        "scanf",
+	ctx.SpecialFuncs["fmt__Scanf"] = fun
+	ctx.SpecialFuncDecls["fmt__Scanf"] = &FunctionDecl{
+		Name:        "fmt__Scanf",
 		ArgNames:    []string{"format"},
 		ArgTypes:    []types.Type{types.I8Ptr},
 		ReturnTypes: []types.Type{types.I32},
@@ -88,6 +90,15 @@ func (ctx *GenContext) PopLexicalScope() {
 	ctx.Vars = ctx.Vars.Parent
 }
 
+func (ctx *GenContext) LookupNameInModule(moduleName, name string) (value.Value, error) {
+	// checks only functions for now
+	if fun, err := ctx.LookupFunc(fmt.Sprintf("%s__%s", moduleName, name)); err != nil {
+		return nil, err
+	} else {
+		return fun, nil
+	}
+}
+
 func (ctx *GenContext) LookupFuncDecl(funName string) (*FunctionDecl, error) {
 	if f, ok := ctx.SpecialFuncDecls[funName]; ok {
 		return f, nil
@@ -108,6 +119,20 @@ func (ctx *GenContext) LookupFunc(funName string) (*ir.Func, error) {
 		return f, nil
 	}
 	return nil, utils.MakeError("function %s not defined", funName)
+}
+
+func (ctx *GenContext) LookupFuncDeclByIR(fun *ir.Func) (*FunctionDecl, error) {
+	for name, irf := range ctx.SpecialFuncs {
+		if irf == fun {
+			return ctx.SpecialFuncDecls[name], nil
+		}
+	}
+	for name, irf := range ctx.Funcs {
+		if irf == fun {
+			return ctx.PackageData.Functions[name], nil
+		}
+	}
+	return nil, utils.MakeError("function declaration not found for %s", fun.String())
 }
 
 func genFunDef(fun *FunctionDecl) (*ir.Func, error) {

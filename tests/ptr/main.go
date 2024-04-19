@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 func minPtr(a, b *int) *int {
 	if *a < *b {
 		return a
@@ -16,5 +18,5 @@ func main() {
 	ptr = &num
 	*ptr = 13
 	*minPtr(&num, &num2) = 0
-	printf("num = %d, num2 = %d\n", num, num2)
+	fmt.Printf("num = %d, num2 = %d\n", num, num2)
 }

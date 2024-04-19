@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 func main() {
 	x, y := 10, 20
 
@@ -7,5 +9,5 @@ func main() {
 	x, y = y, x
 	x, _, y = y, x, 5
 
-	printf("x = %d, y = %d\n", x, y)
+	fmt.Printf("x = %d, y = %d\n", x, y)
 }

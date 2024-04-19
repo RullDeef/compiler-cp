@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 func prime(x int) bool {
 	for n := 2; n < x/2; n++ {
 		if x%n == 0 {
@@ -21,9 +23,9 @@ func printFirstPrimes(n int) {
 	num := 0
 	for i := 1; i <= n; i++ {
 		num = getNextPrime(num)
-		printf("%d ", num)
+		fmt.Printf("%d ", num)
 	}
-	printf("\n")
+	fmt.Printf("\n")
 }
 
 func main() {
