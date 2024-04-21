@@ -17,16 +17,13 @@ type CodeGenVisitor struct {
 	packageData *PackageData
 	genCtx      *GenContext
 
-	// unique index per function body generation
-	UID int
-
 	currentFuncDecl *FunctionDecl
 	currentFuncIR   *ir.Func
 
-	loopStack    []loopBlocks // break + continue
-	labelManager              // goto handling
-	deferManager              // defer handling
-	*typeManager              // user defined types handling
+	branchManager
+	labelManager // goto handling
+	deferManager // defer handling
+	*typeManager // user defined types handling
 }
 
 func NewCodeGenVisitor(pdata *PackageData) (*CodeGenVisitor, error) {
@@ -242,14 +239,14 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 	v.currentFuncDecl = v.packageData.Functions[fun.Name()]
 	v.currentFuncIR = fun
 
+	v.branchManager.EnterFuncDef()
+
 	// setup local var storage
 	v.genCtx.PushLexicalScope()
 	defer v.genCtx.PopLexicalScope()
 
 	// setup defer stack
 	defer v.clearDeferStack()
-
-	v.UID = 0
 
 	// populate function arguments
 	block := fun.NewBlock("entry")
@@ -336,65 +333,6 @@ func (v *CodeGenVisitor) VisitStatement(block *ir.Block, ctx parser.IStatementCo
 	}
 }
 
-func (v *CodeGenVisitor) VisitIfStmt(block *ir.Block, ctx parser.IIfStmtContext) ([]*ir.Block, error) {
-	if ctx.SimpleStmt() != nil {
-		return nil, utils.MakeError("unsupported init statement in if")
-	}
-	exprs, newBlocks, err := v.genCtx.GenerateExpr(block, ctx.Expression())
-	if err != nil {
-		return nil, utils.MakeError("failed to parse if expression: %w", err)
-	} else if !typesystem.IsBoolType(exprs[0].Type()) {
-		return nil, utils.MakeError("expression must have boolean type")
-	} else if newBlocks != nil {
-		block = newBlocks[len(newBlocks)-1]
-	}
-	stmtUID := v.UID
-	v.UID++
-	btrue := ir.NewBlock(fmt.Sprintf("btrue.%d", stmtUID))
-	bfalse := ir.NewBlock(fmt.Sprintf("bfalse.%d", stmtUID))
-	block.NewCondBr(exprs[0], btrue, bfalse)
-
-	newBlocks = append(newBlocks, btrue)
-	trueBlocks, err := v.VisitBlock(btrue, ctx.Block(0))
-	if err != nil {
-		return nil, err
-	} else if trueBlocks != nil {
-		newBlocks = append(newBlocks, trueBlocks...)
-		btrue = newBlocks[len(newBlocks)-1]
-	}
-
-	newBlocks = append(newBlocks, bfalse)
-	if ctx.ELSE() != nil {
-		var blocks []*ir.Block
-		var err error
-		if ctx.IfStmt() != nil {
-			blocks, err = v.VisitIfStmt(bfalse, ctx.IfStmt())
-		} else {
-			blocks, err = v.VisitBlock(bfalse, ctx.Block(1))
-		}
-		if err != nil {
-			return nil, err
-		} else if blocks != nil {
-			newBlocks = append(newBlocks, blocks...)
-			bfalse = newBlocks[len(newBlocks)-1]
-		}
-	}
-
-	// end block
-	if btrue.Term == nil || bfalse.Term == nil {
-		bend := ir.NewBlock(fmt.Sprintf("bend.%d", stmtUID))
-		if btrue.Term == nil {
-			btrue.NewBr(bend)
-		}
-		if bfalse.Term == nil {
-			bfalse.NewBr(bend)
-		}
-		newBlocks = append(newBlocks, bend)
-	}
-
-	return newBlocks, nil
-}
-
 func (v *CodeGenVisitor) VisitSimpleStatement(block *ir.Block, ctx parser.ISimpleStmtContext) ([]*ir.Block, error) {
 	switch s := ctx.GetChild(0).(type) {
 	case parser.IAssignmentContext:
@@ -448,6 +386,15 @@ func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignment
 		newBlocks = append(newBlocks, blocks...)
 		block = newBlocks[len(newBlocks)-1]
 	}
+	if ctx.Assign_op().GetChildCount() != 1 {
+		blocks, err := v.visitAssignOp(block, ctx.Assign_op(), lvals, rvals)
+		if err != nil {
+			return nil, err
+		} else if blocks != nil {
+			newBlocks = append(newBlocks, blocks...)
+		}
+		return newBlocks, nil
+	}
 	if len(lvals) != len(rvals) {
 		return nil, utils.MakeError("unmatched lvals(%d) and rvals(%d) count", len(lvals), len(rvals))
 	}
@@ -456,7 +403,58 @@ func (v *CodeGenVisitor) VisitAssignment(block *ir.Block, ctx parser.IAssignment
 			block.NewStore(rvals[i], lvals[i])
 		}
 	}
-	return nil, nil
+	return newBlocks, nil
+}
+
+func (v *CodeGenVisitor) visitAssignOp(block *ir.Block, ctx parser.IAssign_opContext, lvals, rvals []value.Value) ([]*ir.Block, error) {
+	if len(lvals) != 1 || len(rvals) != 1 {
+		return nil, utils.MakeError("multiple values in sigle-valued context")
+	}
+	lval := block.NewLoad(lvals[0].Type().(*types.PointerType).ElemType, lvals[0])
+	// check type
+	ctp, ok := typesystem.CommonSupertype(lval, rvals[0])
+	if !ok {
+		return nil, utils.MakeError("failed to deduce common type for values %s and %s", lvals[0].String(), rvals[0].String())
+	}
+	if ctx.PLUS() != nil {
+		if typesystem.IsFloatType(ctp) {
+			block.NewStore(block.NewFAdd(lval, rvals[0]), lvals[0])
+			return nil, nil
+		} else if typesystem.IsIntType(ctp) {
+			block.NewStore(block.NewAdd(lval, rvals[0]), lvals[0])
+			return nil, nil
+		}
+	} else if ctx.MINUS() != nil {
+		if typesystem.IsFloatType(ctp) {
+			block.NewStore(block.NewFSub(lval, rvals[0]), lvals[0])
+			return nil, nil
+		} else if typesystem.IsIntType(ctp) {
+			block.NewStore(block.NewSub(lval, rvals[0]), lvals[0])
+			return nil, nil
+		}
+	} else if ctx.STAR() != nil {
+		if typesystem.IsFloatType(ctp) {
+			block.NewStore(block.NewFMul(lval, rvals[0]), lvals[0])
+			return nil, nil
+		} else if typesystem.IsIntType(ctp) {
+			block.NewStore(block.NewMul(lval, rvals[0]), lvals[0])
+			return nil, nil
+		}
+	} else if ctx.DIV() != nil {
+		if typesystem.IsFloatType(ctp) {
+			block.NewStore(block.NewFDiv(lval, rvals[0]), lvals[0])
+			return nil, nil
+		} else if typesystem.IsIntType(ctp) {
+			block.NewStore(block.NewSDiv(lval, rvals[0]), lvals[0])
+			return nil, nil
+		} else if typesystem.IsUintType(ctp) {
+			block.NewStore(block.NewUDiv(lval, rvals[0]), lvals[0])
+			return nil, nil
+		}
+	} else {
+		return nil, utils.MakeError("unsupported operator '%s'", ctx.GetText())
+	}
+	return nil, utils.MakeError("unsupported type for %s operation", ctx.GetText())
 }
 
 func (v *CodeGenVisitor) VisitShortVarDecl(block *ir.Block, ctx parser.IShortVarDeclContext) ([]*ir.Block, error) {

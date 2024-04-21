@@ -507,6 +507,25 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpressionContext) ([]value.Value, []*ir.Block, error) {
 	if ctx.PLUS() != nil {
 		return genCtx.GenerateExpr(block, ctx.Expression(0))
+	} else if ctx.MINUS() != nil {
+		vals, blocks, err := genCtx.GenerateExpr(block, ctx.Expression(0))
+		if err != nil {
+			return nil, nil, err
+		} else if blocks != nil {
+			block = blocks[len(blocks)-1]
+		}
+		tp := vals[0].Type()
+		if typesystem.IsIntType(tp) {
+			return []value.Value{
+				block.NewSub(constant.NewInt(tp.(*types.IntType), 0), vals[0]),
+			}, blocks, nil
+		} else if typesystem.IsFloatType(tp) {
+			return []value.Value{
+				block.NewFSub(constant.NewFloat(tp.(*types.FloatType), 0), vals[0]),
+			}, blocks, nil
+		} else {
+			return nil, nil, utils.MakeError("unsupported type for unary minus: %s", tp.String())
+		}
 	} else if ctx.EXCLAMATION() != nil {
 		vals, blocks, err := genCtx.GenerateExpr(block, ctx.Expression(0))
 		if err != nil {

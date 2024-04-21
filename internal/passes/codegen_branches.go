@@ -3,26 +3,98 @@ package passes
 import (
 	"fmt"
 	"gocomp/internal/parser"
+	"gocomp/internal/typesystem"
 	"gocomp/internal/utils"
 
 	"github.com/llir/llvm/ir"
 )
+
+type branchManager struct {
+	// unique index per function body generation
+	// used in branch statements
+	UID int
+
+	loopStack []loopBlocks
+}
 
 type loopBlocks struct {
 	cond *ir.Block
 	end  *ir.Block
 }
 
-func (v *CodeGenVisitor) pushLoopStack(cond, end *ir.Block) {
-	v.loopStack = append(v.loopStack, loopBlocks{cond, end})
+func (m *branchManager) EnterFuncDef() {
+	m.UID = 0
 }
 
-func (v *CodeGenVisitor) popLoopStack() {
-	v.loopStack = v.loopStack[:len(v.loopStack)-1]
+func (m *branchManager) pushLoopStack(cond, end *ir.Block) {
+	m.loopStack = append(m.loopStack, loopBlocks{cond, end})
 }
 
-func (v *CodeGenVisitor) topLoopBlocks() loopBlocks {
-	return v.loopStack[len(v.loopStack)-1]
+func (m *branchManager) popLoopStack() {
+	m.loopStack = m.loopStack[:len(m.loopStack)-1]
+}
+
+func (m *branchManager) topLoopBlocks() loopBlocks {
+	return m.loopStack[len(m.loopStack)-1]
+}
+
+func (v *CodeGenVisitor) VisitIfStmt(block *ir.Block, ctx parser.IIfStmtContext) ([]*ir.Block, error) {
+	if ctx.SimpleStmt() != nil {
+		return nil, utils.MakeError("unsupported init statement in if")
+	}
+	exprs, newBlocks, err := v.genCtx.GenerateExpr(block, ctx.Expression())
+	if err != nil {
+		return nil, utils.MakeError("failed to parse if expression: %w", err)
+	} else if !typesystem.IsBoolType(exprs[0].Type()) {
+		return nil, utils.MakeError("expression must have boolean type")
+	} else if newBlocks != nil {
+		block = newBlocks[len(newBlocks)-1]
+	}
+	stmtUID := v.branchManager.UID
+	v.branchManager.UID++
+	btrue := ir.NewBlock(fmt.Sprintf("btrue.%d", stmtUID))
+	bfalse := ir.NewBlock(fmt.Sprintf("bfalse.%d", stmtUID))
+	block.NewCondBr(exprs[0], btrue, bfalse)
+
+	newBlocks = append(newBlocks, btrue)
+	trueBlocks, err := v.VisitBlock(btrue, ctx.Block(0))
+	if err != nil {
+		return nil, err
+	} else if trueBlocks != nil {
+		newBlocks = append(newBlocks, trueBlocks...)
+		btrue = newBlocks[len(newBlocks)-1]
+	}
+
+	newBlocks = append(newBlocks, bfalse)
+	if ctx.ELSE() != nil {
+		var blocks []*ir.Block
+		var err error
+		if ctx.IfStmt() != nil {
+			blocks, err = v.VisitIfStmt(bfalse, ctx.IfStmt())
+		} else {
+			blocks, err = v.VisitBlock(bfalse, ctx.Block(1))
+		}
+		if err != nil {
+			return nil, err
+		} else if blocks != nil {
+			newBlocks = append(newBlocks, blocks...)
+			bfalse = newBlocks[len(newBlocks)-1]
+		}
+	}
+
+	// end block
+	if btrue.Term == nil || bfalse.Term == nil {
+		bend := ir.NewBlock(fmt.Sprintf("bend.%d", stmtUID))
+		if btrue.Term == nil {
+			btrue.NewBr(bend)
+		}
+		if bfalse.Term == nil {
+			bfalse.NewBr(bend)
+		}
+		newBlocks = append(newBlocks, bend)
+	}
+
+	return newBlocks, nil
 }
 
 func (v *CodeGenVisitor) VisitForStmt(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
@@ -42,8 +114,8 @@ func (v *CodeGenVisitor) VisitForStmt(block *ir.Block, ctx parser.IForStmtContex
 }
 
 func (v *CodeGenVisitor) VisitEndlessLoop(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
-	stmtUID := v.UID
-	v.UID++
+	stmtUID := v.branchManager.UID
+	v.branchManager.UID++
 
 	uroboros := ir.NewBlock(fmt.Sprintf("uroboros.%d", stmtUID))
 	bend := ir.NewBlock(fmt.Sprintf("uroboros.end.%d", stmtUID))
@@ -68,8 +140,8 @@ func (v *CodeGenVisitor) VisitEndlessLoop(block *ir.Block, ctx parser.IForStmtCo
 }
 
 func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
-	stmtUID := v.UID
-	v.UID++
+	stmtUID := v.branchManager.UID
+	v.branchManager.UID++
 
 	var newBlocks []*ir.Block
 
@@ -137,8 +209,8 @@ func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtCon
 }
 
 func (v *CodeGenVisitor) VisitWhileLoop(block *ir.Block, ctx parser.IForStmtContext) ([]*ir.Block, error) {
-	stmtUID := v.UID
-	v.UID++
+	stmtUID := v.branchManager.UID
+	v.branchManager.UID++
 
 	condBlock := ir.NewBlock(fmt.Sprintf("while.cond.%d", stmtUID))
 	bbody := ir.NewBlock(fmt.Sprintf("while.body.%d", stmtUID))

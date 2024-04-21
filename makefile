@@ -1,8 +1,9 @@
 SRCS := $(wildcard internal/**/*.go)
 TSTS := $(wildcard tests/*)
 CHK_TSTS := $(subst tests,.test,$(subst .go,,$(TSTS)))
+CHK_TSTS_LL := $(addsuffix /main.ll,$(TSTS))
 
-.PHONY: run test
+.PHONY: run test clean
 
 run: prog.exe
 	./prog.exe
@@ -11,12 +12,20 @@ run: prog.exe
 test: $(CHK_TSTS)
 	@echo tests completed
 
-$(CHK_TSTS): .test/%: tests/%/main.go $(SRCS)
+clean:
+	@rm -rf .test $(CHK_TSTS_LL)
+	@echo binary files cleaned up
+
+$(CHK_TSTS): .test/%: tests/%/main.ll
 	@mkdir -p $(dir $@)
-	@echo [[COMPILING TEST $<]]
-	@cat $< | go run ./cmd/compiler | tee $(dir $<)/main.ll | llc-18 | tee $(dir $<)/main-opt.ll | clang -o $@ -x assembler -
-	@echo [[RUNNING TEST $<]]
-	@./$@ < $(basename $(dir $<))/in.txt | diff - $(basename $(dir $<))/out.txt
+	@echo "[[COMPILING TEST [llvm] $^]]"
+	@llc-18 $^ -o - | clang -o $@ -x assembler -
+	@echo "[[RUNNING TEST $^]]"
+	@./$@ < $(dir $^)/in.txt | diff - $(dir $^)/out.txt
+
+$(CHK_TSTS_LL): tests/%/main.ll: tests/%/main.go $(SRCS)
+	@echo [[COMPILING TEST [gocomp] $<]]
+	@cat $< | go run ./cmd/compiler | tee $(dir $<)/main.ll | opt-18 -S -o $(dir $<)/main-opt.ll
 
 prog.exe: prog.s
 	clang -o $@ $^
