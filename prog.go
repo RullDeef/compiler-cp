@@ -1,12 +1,9 @@
 package main
 
-import "fmt"
+var deferStack [1024]uint8
 
-func greet(msg string) {
-	fmt.Printf("hello, %s!\n", msg)
+type deferStackNode struct {
 }
 
 func main() {
-	s := "aboba"
-	greet(s)
 }

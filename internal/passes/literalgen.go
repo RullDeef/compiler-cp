@@ -31,7 +31,12 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 	if ctx.NIL_LIT() != nil {
 		return []value.Value{constant.NewNull(types.I32Ptr)}, nil, nil
 	} else if ctx.Integer() != nil {
-		val, err := constant.NewIntFromString(types.I32, ctx.Integer().GetText())
+		istr := ctx.Integer().GetText()
+		// adjust for hexadecimals
+		if len(istr) >= 2 && (istr[:2] == "0x" || istr[:2] == "0X") {
+			istr = "s" + istr
+		}
+		val, err := constant.NewIntFromString(types.I32, istr)
 		if err != nil {
 			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse basic integer literal expression")
 		}

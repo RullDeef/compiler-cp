@@ -285,15 +285,20 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 	} else if ctx.MethodExpr() != nil {
 		return nil, nil, utils.MakeErrorTrace(ctx, nil, "method call expressions not supported yet")
 	} else if ctx.PrimaryExpr() != nil {
-		// function call
+		// function call or type cast
 		if ctx.Arguments() != nil {
-			exprs, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx.PrimaryExpr())
+			args, blocks, err := genCtx.GenerateArguments(block, ctx.Arguments())
 			if err != nil {
 				return nil, nil, err
 			} else if blocks != nil {
 				block = blocks[len(blocks)-1]
 			}
-			args, blocks, err := genCtx.GenerateArguments(block, ctx.Arguments())
+			// check for type cast first
+			if tp, err := typesystem.GoTypeToIR(ctx.PrimaryExpr().GetText()); err == nil {
+				return genCtx.GenerateTypeCast(block, tp, args[0])
+			}
+			// not a type cast
+			exprs, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx.PrimaryExpr())
 			if err != nil {
 				return nil, nil, err
 			} else if blocks != nil {
@@ -403,6 +408,39 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 		}
 	}
 	return nil, nil, utils.MakeError("unimplemented primary expression: %s", ctx.GetText())
+}
+
+func (genCtx *GenContext) GenerateTypeCast(block *ir.Block, tp types.Type, val value.Value) ([]value.Value, []*ir.Block, error) {
+	// do nothing if types are the same
+	if tp.Equal(val.Type()) {
+		return []value.Value{val}, nil, nil
+	}
+	if typesystem.IsIntType(tp) && typesystem.IsIntType(val.Type()) {
+		tpi := tp.(*types.IntType)
+		tpv := val.Type().(*types.IntType)
+		if tpi.BitSize > tpv.BitSize {
+			return []value.Value{block.NewSExt(val, tp)}, nil, nil
+		} else {
+			return []value.Value{block.NewTrunc(val, tp)}, nil, nil
+		}
+	}
+	if typesystem.IsFloatType(tp) && typesystem.IsFloatType(val.Type()) {
+		tpf := tp.(*types.FloatType)
+		tpv := val.Type().(*types.FloatType)
+		if tpf.Kind > tpv.Kind {
+			return []value.Value{block.NewFPExt(val, tp)}, nil, nil
+		} else {
+			return []value.Value{block.NewFPTrunc(val, tp)}, nil, nil
+		}
+	}
+	// inter-number conversions
+	if typesystem.IsIntType(tp) && typesystem.IsFloatType(val.Type()) {
+		return []value.Value{block.NewFPToSI(val, tp)}, nil, nil
+	}
+	if typesystem.IsFloatType(tp) && typesystem.IsIntType(val.Type()) {
+		return []value.Value{block.NewSIToFP(val, tp)}, nil, nil
+	}
+	return nil, nil, utils.MakeError("invalid typecast")
 }
 
 func (genCtx *GenContext) GenerateArguments(block *ir.Block, ctx parser.IArgumentsContext) ([]value.Value, []*ir.Block, error) {
