@@ -101,7 +101,7 @@ func (genCtx *GenContext) GenerateStructLiteralValue(block *ir.Block, stp *types
 	if ctx.ElementList() == nil {
 		return block.NewLoad(stp, slitAddr), nil, nil
 	}
-	keyedElems := make([]keyedElement, 0)
+	keyedElems := []keyedElement{}
 	var blocks []*ir.Block
 	for _, kElemCtx := range ctx.ElementList().AllKeyedElement() {
 		kelem, newBlocks, err := genCtx.ParseKeyedElement(block, stp, kElemCtx)
@@ -118,16 +118,26 @@ func (genCtx *GenContext) GenerateStructLiteralValue(block *ir.Block, stp *types
 			}
 		}
 		// build up struct value
-		off, tp, err := stp.ComputeOffset(kelem.key)
-		if err != nil {
-			return nil, nil, err
+		var off int
+		if kelem.key != "" {
+			var tp types.Type
+			var err error
+			off, tp, err = stp.ComputeOffset(kelem.key)
+			if err != nil {
+				return nil, nil, err
+			}
+			// TODO: check types for tp and keyed element
+			_ = tp
+		} else {
+			// offset by field position in literal
+			off = len(keyedElems)
+			kelem.key = stp.Fields[off].Name
 		}
-		// TODO: check types for tp and keyed element
-		_ = tp
 		block.NewStore(
 			kelem.element,
 			block.NewGetElementPtr(&stp.StructType, slitAddr, constant.NewInt(types.I32, 0), constant.NewInt(types.I32, int64(off))),
 		)
+		keyedElems = append(keyedElems, *kelem)
 	}
 	slitVal := block.NewLoad(stp, slitAddr)
 	return slitVal, blocks, nil
