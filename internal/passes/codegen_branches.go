@@ -40,13 +40,13 @@ func (m *branchManager) topLoopBlocks() loopBlocks {
 
 func (v *CodeGenVisitor) VisitIfStmt(block *ir.Block, ctx parser.IIfStmtContext) ([]*ir.Block, error) {
 	if ctx.SimpleStmt() != nil {
-		return nil, utils.MakeError("unsupported init statement in if")
+		return nil, utils.MakeErrorTrace(ctx, nil, "unsupported init statement in if")
 	}
 	exprs, newBlocks, err := v.genCtx.GenerateExpr(block, ctx.Expression())
 	if err != nil {
-		return nil, utils.MakeError("failed to parse if expression: %w", err)
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse if expression")
 	} else if !typesystem.IsBoolType(exprs[0].Type()) {
-		return nil, utils.MakeError("expression must have boolean type")
+		return nil, utils.MakeErrorTrace(ctx.Expression(), err, "expression must have boolean type")
 	} else if newBlocks != nil {
 		block = newBlocks[len(newBlocks)-1]
 	}
@@ -59,7 +59,7 @@ func (v *CodeGenVisitor) VisitIfStmt(block *ir.Block, ctx parser.IIfStmtContext)
 	newBlocks = append(newBlocks, btrue)
 	trueBlocks, err := v.VisitBlock(btrue, ctx.Block(0))
 	if err != nil {
-		return nil, err
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse if statement")
 	} else if trueBlocks != nil {
 		newBlocks = append(newBlocks, trueBlocks...)
 		btrue = newBlocks[len(newBlocks)-1]
@@ -75,7 +75,7 @@ func (v *CodeGenVisitor) VisitIfStmt(block *ir.Block, ctx parser.IIfStmtContext)
 			blocks, err = v.VisitBlock(bfalse, ctx.Block(1))
 		}
 		if err != nil {
-			return nil, err
+			return nil, utils.MakeErrorTrace(ctx, err, "failed to parse if statement")
 		} else if blocks != nil {
 			newBlocks = append(newBlocks, blocks...)
 			bfalse = newBlocks[len(newBlocks)-1]
@@ -104,7 +104,7 @@ func (v *CodeGenVisitor) VisitForStmt(block *ir.Block, ctx parser.IForStmtContex
 	if ctx.Expression() != nil {
 		return v.VisitWhileLoop(block, ctx)
 	} else if ctx.RangeClause() != nil {
-		return nil, utils.MakeError("range for loop not implemented yet")
+		return nil, utils.MakeErrorTrace(ctx, nil, "range for loop not implemented yet")
 	} else if ctx.ForClause() != nil {
 		return v.VisitForClaused(block, ctx)
 	} else {
@@ -127,7 +127,7 @@ func (v *CodeGenVisitor) VisitEndlessLoop(block *ir.Block, ctx parser.IForStmtCo
 	newBlocks := []*ir.Block{uroboros}
 	blocks, err := v.VisitBlock(block, ctx.Block())
 	if err != nil {
-		return nil, err
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse endless for loop")
 	} else if blocks != nil {
 		newBlocks = append(newBlocks, blocks...)
 		block = newBlocks[len(newBlocks)-1]
@@ -149,7 +149,7 @@ func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtCon
 	if ctx.ForClause().GetInitStmt() != nil {
 		blocks, err := v.VisitSimpleStatement(block, ctx.ForClause().GetInitStmt())
 		if err != nil {
-			return nil, err
+			return nil, utils.MakeErrorTrace(ctx, err, "failed to parse for clause")
 		} else if blocks != nil {
 			newBlocks = append(newBlocks, blocks...)
 			block = newBlocks[len(newBlocks)-1]
@@ -169,7 +169,7 @@ func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtCon
 	block = condBlock
 	vals, blocks, err := v.genCtx.GenerateExpr(block, ctx.ForClause().Expression())
 	if err != nil {
-		return nil, err
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse for loop condition")
 	} else if blocks != nil {
 		newBlocks = append(newBlocks, blocks...)
 		block = newBlocks[len(newBlocks)-1]
@@ -181,7 +181,7 @@ func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtCon
 	// loop body
 	blocks, err = v.VisitBlock(block, ctx.Block())
 	if err != nil {
-		return nil, err
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse for loop body")
 	} else if blocks != nil {
 		newBlocks = append(newBlocks, blocks...)
 		block = newBlocks[len(newBlocks)-1]
@@ -195,7 +195,7 @@ func (v *CodeGenVisitor) VisitForClaused(block *ir.Block, ctx parser.IForStmtCon
 	// post condition
 	blocks, err = v.VisitSimpleStatement(block, ctx.ForClause().GetPostStmt())
 	if err != nil {
-		return nil, err
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse for loop postcondition")
 	} else if blocks != nil {
 		newBlocks = append(newBlocks, blocks...)
 		block = newBlocks[len(newBlocks)-1]
@@ -223,7 +223,7 @@ func (v *CodeGenVisitor) VisitWhileLoop(block *ir.Block, ctx parser.IForStmtCont
 	block = condBlock
 	vals, blocks, err := v.genCtx.GenerateExpr(block, ctx.Expression())
 	if err != nil {
-		return nil, err
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse for-while loop")
 	} else if blocks != nil {
 		newBlocks = append(newBlocks, blocks...)
 		block = newBlocks[len(newBlocks)-1]
@@ -233,7 +233,7 @@ func (v *CodeGenVisitor) VisitWhileLoop(block *ir.Block, ctx parser.IForStmtCont
 	block = bbody
 	blocks, err = v.VisitBlock(block, ctx.Block())
 	if err != nil {
-		return nil, err
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse for-while loop body")
 	} else if blocks != nil {
 		newBlocks = append(newBlocks, blocks...)
 		block = newBlocks[len(newBlocks)-1]

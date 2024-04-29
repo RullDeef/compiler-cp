@@ -3,6 +3,7 @@ package passes
 import (
 	"gocomp/internal/parser"
 	"gocomp/internal/typesystem"
+	"gocomp/internal/utils"
 	"strings"
 
 	"github.com/llir/llvm/ir/types"
@@ -83,7 +84,6 @@ func (v *PackageListener) EnterImportSpec(ctx *parser.ImportSpecContext) {
 }
 
 func (v *PackageListener) EnterTypeDecl(ctx *parser.TypeDeclContext) {
-	print("entered type declaration!")
 	err := v.pdata.ParseTypeDecl(ctx)
 	if err != nil {
 		print("error is not nil!! on enter type decl")
@@ -126,7 +126,7 @@ func (v *PackageListener) EnterMethodDecl(ctx *parser.MethodDeclContext) {
 func (v *PackageListener) ParseSignature(ctx parser.ISignatureContext) (*FunctionDecl, error) {
 	names, types, err := v.ParseParameters(ctx.Parameters())
 	if err != nil {
-		return nil, err
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse signature")
 	}
 	fundec := FunctionDecl{
 		ArgNames: names,
@@ -137,7 +137,7 @@ func (v *PackageListener) ParseSignature(ctx parser.ISignatureContext) (*Functio
 		if ctx.Result().Type_() != nil {
 			tp, err := v.pdata.ParseType(ctx.Result().Type_())
 			if err != nil {
-				return nil, err
+				return nil, utils.MakeErrorTrace(ctx, err, "failed to parse signature")
 			}
 			fundec.ReturnNames = append(fundec.ReturnNames, "")
 			fundec.ReturnTypes = append(fundec.ReturnTypes, tp)
@@ -145,7 +145,7 @@ func (v *PackageListener) ParseSignature(ctx parser.ISignatureContext) (*Functio
 			// multiple return values
 			names, types, err := v.ParseParameters(ctx.Result().Parameters())
 			if err != nil {
-				return nil, err
+				return nil, utils.MakeErrorTrace(ctx, err, "failed to parse signature")
 			}
 			fundec.ReturnNames = append(fundec.ReturnNames, names...)
 			fundec.ReturnTypes = append(fundec.ReturnTypes, types...)
@@ -160,7 +160,7 @@ func (v *PackageListener) ParseParameters(ctx parser.IParametersContext) ([]stri
 	for _, child := range ctx.AllParameterDecl() {
 		newNames, newTypes, err := v.ParseParameterDecl(child)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse parameters")
 		}
 		names = append(names, newNames...)
 		types = append(types, newTypes...)

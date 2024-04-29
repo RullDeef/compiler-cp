@@ -21,13 +21,13 @@ func (genCtx *GenContext) GenerateLValue(block *ir.Block, ctx parser.IExpression
 	} else if ctx.STAR() != nil {
 		vals, blocks, err := genCtx.GenerateExpr(block, ctx.Expression(0))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse lvalue")
 		} else if blocks != nil {
 			block = blocks[len(blocks)-1]
 		}
 		ptrtp, ok := vals[0].Type().(*types.PointerType)
 		if !ok {
-			return nil, nil, utils.MakeError("invalid lvalue type")
+			return nil, nil, utils.MakeErrorTrace(ctx, nil, "invalid lvalue type")
 		}
 		return []value.Value{
 			typesystem.NewTypedValue(vals[0], ptrtp),
@@ -36,13 +36,13 @@ func (genCtx *GenContext) GenerateLValue(block *ir.Block, ctx parser.IExpression
 		// array indexing
 		subexprs, blocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr().PrimaryExpr())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse array indexing")
 		} else if blocks != nil {
 			block = blocks[len(blocks)-1]
 		}
 		idxs, newBlocks, err := genCtx.GenerateExpr(block, ctx.PrimaryExpr().Index().Expression())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse array indexing")
 		} else if newBlocks != nil {
 			blocks = append(blocks, newBlocks...)
 			block = blocks[len(blocks)-1]
@@ -52,11 +52,11 @@ func (genCtx *GenContext) GenerateLValue(block *ir.Block, ctx parser.IExpression
 		if !ok {
 			ptp, ok := tp.(*types.PointerType)
 			if !ok {
-				return nil, nil, utils.MakeError("invalid type for indexing: %s", tp)
+				return nil, nil, utils.MakeErrorTrace(ctx, nil, "invalid type for indexing: %s", tp)
 			}
 			arrtp, ok = ptp.ElemType.(*types.ArrayType)
 			if !ok {
-				return nil, nil, utils.MakeError("invalid type for indexing: %s", tp)
+				return nil, nil, utils.MakeErrorTrace(ctx, nil, "invalid type for indexing: %s", tp)
 			}
 		}
 		return []value.Value{
@@ -68,7 +68,7 @@ func (genCtx *GenContext) GenerateLValue(block *ir.Block, ctx parser.IExpression
 		return genCtx.GeneratePrimaryLValue(block, s)
 	default:
 		fmt.Println(ctx.GetText())
-		return nil, nil, utils.MakeError("this kind of lvalue not implemented")
+		return nil, nil, utils.MakeErrorTrace(ctx, nil, "this kind of lvalue not implemented")
 	}
 }
 
@@ -80,7 +80,7 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 				return []value.Value{nil}, nil, nil
 			}
 			if val, ok := genCtx.Vars.Lookup(varName); !ok {
-				return nil, nil, utils.MakeError("variable %s not defined in this scope", varName)
+				return nil, nil, utils.MakeErrorTrace(ctx, nil, "variable %s not defined in this scope", varName)
 			} else {
 				return []value.Value{val}, nil, nil
 			}
@@ -97,20 +97,20 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 				block = blocks[len(blocks)-1]
 			}
 			if _, ok := vals[0].Type().(*types.PointerType); !ok {
-				return nil, nil, utils.MakeError("pointer type required for lvalue")
+				return nil, nil, utils.MakeErrorTrace(ctx, nil, "pointer type required for lvalue")
 			}
 			return []value.Value{vals[0], vals[0]}, blocks, nil
 		} else if ctx.Index() != nil {
 			// array indexing
 			vals, blocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr())
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, utils.MakeErrorTrace(ctx, err, "faiiled to parse array indexing")
 			} else if blocks != nil {
 				block = blocks[len(blocks)-1]
 			}
 			idx, newBlocks, err := genCtx.GenerateExpr(block, ctx.Index().Expression())
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse array indexing")
 			} else if newBlocks != nil {
 				blocks = append(blocks, newBlocks...)
 				block = blocks[len(blocks)-1]
@@ -118,7 +118,7 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			tp := vals[0].Type()
 			ptp, ok := tp.(*types.PointerType)
 			if !ok {
-				return nil, nil, utils.MakeError("must be pointer type")
+				return nil, nil, utils.MakeErrorTrace(ctx, nil, "must be pointer type")
 			}
 			atp, ok := ptp.ElemType.(*types.ArrayType)
 			if !ok {
@@ -126,11 +126,11 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 				// to avoid syntax (*var).field
 				ptptp, ok := ptp.ElemType.(*types.PointerType)
 				if !ok {
-					return nil, nil, utils.MakeError("must be pointer type")
+					return nil, nil, utils.MakeErrorTrace(ctx, nil, "must be pointer type")
 				}
 				atp, ok = ptptp.ElemType.(*types.ArrayType)
 				if !ok {
-					return nil, nil, utils.MakeError("must be pointer to array type")
+					return nil, nil, utils.MakeErrorTrace(ctx, nil, "must be pointer to array type")
 				}
 				ptp = ptptp
 				vals[0] = block.NewLoad(ptptp, vals[0])
@@ -146,12 +146,12 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			// accessor to struct field
 			vals, newBlocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr())
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse accessor")
 			}
 			tp := vals[0].Type()
 			ptp, ok := tp.(*types.PointerType)
 			if !ok {
-				return nil, nil, utils.MakeError("pointer type expected for lvalue")
+				return nil, nil, utils.MakeErrorTrace(ctx, nil, "pointer type expected for lvalue")
 			}
 			stp, ok := ptp.ElemType.(*typesystem.StructInfo)
 			if !ok {
@@ -159,11 +159,11 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 				// to avoid syntax (*var).field
 				ptptp, ok := ptp.ElemType.(*types.PointerType)
 				if !ok {
-					return nil, nil, utils.MakeError("struct type expected for field accesor syntax")
+					return nil, nil, utils.MakeErrorTrace(ctx, nil, "struct type expected for field accesor syntax")
 				}
 				stp, ok = ptptp.ElemType.(*typesystem.StructInfo)
 				if !ok {
-					return nil, nil, utils.MakeError("struct type expected for field accesor syntax")
+					return nil, nil, utils.MakeErrorTrace(ctx, nil, "struct type expected for field accesor syntax")
 				}
 				ptp = ptptp
 				vals[0] = block.NewLoad(ptptp, vals[0])
@@ -171,7 +171,7 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			fieldIdent := ctx.IDENTIFIER().GetText()
 			offset, fieldType, err := stp.ComputeOffset(fieldIdent)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to compute struct field offset")
 			}
 			elem, ok := ptp.ElemType.(*typesystem.StructInfo)
 			if ok {
@@ -188,7 +188,7 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			}, newBlocks, nil
 		}
 	}
-	return nil, nil, utils.MakeError("lvalue for primary expression not implemented")
+	return nil, nil, utils.MakeErrorTrace(ctx, nil, "lvalue for primary expression not implemented")
 }
 
 func (genCtx *GenContext) GenerateIdentList(ctx parser.IIdentifierListContext) []string {
@@ -205,7 +205,7 @@ func (genCtx *GenContext) GenerateLValueList(block *ir.Block, ctx parser.IExpres
 	for i := range ctx.AllExpression() {
 		exprs, blocks, err := genCtx.GenerateLValue(block, ctx.Expression(i))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse lvalue list")
 		} else if blocks != nil {
 			newBlocks = append(newBlocks, blocks...)
 			block = newBlocks[len(newBlocks)-1]
@@ -221,7 +221,7 @@ func (genCtx *GenContext) GenerateExprList(block *ir.Block, ctx parser.IExpressi
 	for _, c := range ctx.AllExpression() {
 		exprs, blocks, err := genCtx.GenerateExpr(block, c)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse expression list")
 		} else if blocks != nil {
 			newBlocks = append(newBlocks, blocks...)
 			block = newBlocks[len(newBlocks)-1]
@@ -241,12 +241,12 @@ func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionCo
 	left, leftBlocks, err := genCtx.GenerateExpr(block, ctx.Expression(0))
 	_ = leftBlocks
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse expression")
 	}
 	right, rightBlocks, err := genCtx.GenerateExpr(block, ctx.Expression(1))
 	_ = rightBlocks
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse expression")
 	}
 	if ctx.LOGICAL_AND() != nil {
 		return genCtx.GenerateAndExpr(block, left[0], right[0])
@@ -261,7 +261,7 @@ func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionCo
 		} else if ctx.MOD() != nil {
 			return genCtx.GenerateModExpr(block, left[0], right[0])
 		} else {
-			return nil, nil, utils.MakeError("unimplemented instruction: %s", ctx.GetText())
+			return nil, nil, utils.MakeErrorTrace(ctx, nil, "unimplemented instruction: %s", ctx.GetText())
 		}
 	} else if ctx.GetAdd_op() != nil {
 		if ctx.PLUS() != nil {
@@ -269,22 +269,22 @@ func (genCtx *GenContext) GenerateExpr(block *ir.Block, ctx parser.IExpressionCo
 		} else if ctx.MINUS() != nil {
 			return genCtx.GenerateSubExpr(block, left[0], right[0])
 		} else {
-			return nil, nil, utils.MakeError("unimplemented instruction: %s", ctx.GetText())
+			return nil, nil, utils.MakeErrorTrace(ctx, nil, "unimplemented instruction: %s", ctx.GetText())
 		}
 	} else if ctx.GetRel_op() != nil {
 		return genCtx.GenerateRelExpr(block, left[0], right[0], ctx)
 	}
 
-	return nil, nil, utils.MakeError("other types of expression not implemented")
+	return nil, nil, utils.MakeErrorTrace(ctx, nil, "other types of expression not implemented")
 }
 
 func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrimaryExprContext) ([]value.Value, []*ir.Block, error) {
 	if ctx.Operand() != nil {
 		return genCtx.GenerateOperand(block, ctx.Operand())
 	} else if ctx.Conversion() != nil {
-		return nil, nil, utils.MakeError("type conversions are not supported yet")
+		return nil, nil, utils.MakeErrorTrace(ctx, nil, "type conversions are not supported yet")
 	} else if ctx.MethodExpr() != nil {
-		return nil, nil, utils.MakeError("method exprs not supported yet")
+		return nil, nil, utils.MakeErrorTrace(ctx, nil, "method call expressions not supported yet")
 	} else if ctx.PrimaryExpr() != nil {
 		// function call
 		if ctx.Arguments() != nil {
@@ -302,11 +302,11 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 			}
 			funRef, ok := exprs[0].(*ir.Func)
 			if !ok {
-				return nil, nil, utils.MakeError("value %+v is not a func ref", exprs[0])
+				return nil, nil, utils.MakeErrorTrace(ctx, nil, "value %+v is not a func ref", exprs[0])
 			}
 			funDecl, err := genCtx.LookupFuncDeclByIR(funRef)
 			if err != nil {
-				return nil, nil, utils.MakeError("function declaration for %s not found", funRef.String())
+				return nil, nil, utils.MakeErrorTrace(ctx, nil, "function declaration for %s not found", funRef.String())
 			}
 			if funDecl.ReturnTypes == nil {
 				block.NewCall(funRef, args...)
@@ -333,13 +333,13 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 			// array indexing
 			exprs, blocks, err := genCtx.GeneratePrimaryLValue(block, ctx.PrimaryExpr())
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse array indexing")
 			} else if blocks != nil {
 				block = blocks[len(blocks)-1]
 			}
 			idxs, newBlocks, err := genCtx.GenerateExpr(block, ctx.Index().Expression())
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse array index")
 			} else if newBlocks != nil {
 				blocks = append(blocks, newBlocks...)
 				block = blocks[len(blocks)-1]
@@ -347,7 +347,7 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 			tp := exprs[0].Type()
 			ptp, ok := tp.(*types.PointerType)
 			if !ok {
-				return nil, nil, utils.MakeError("must be pointer type")
+				return nil, nil, utils.MakeErrorTrace(ctx, nil, "must be pointer type")
 			}
 			atp, ok := ptp.ElemType.(*types.ArrayType)
 			if !ok {
@@ -355,11 +355,11 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 				// to avoid syntax (*var).field
 				ptptp, ok := ptp.ElemType.(*types.PointerType)
 				if !ok {
-					return nil, nil, utils.MakeError("must be pointer type")
+					return nil, nil, utils.MakeErrorTrace(ctx, nil, "must be pointer type")
 				}
 				atp, ok = ptptp.ElemType.(*types.ArrayType)
 				if !ok {
-					return nil, nil, utils.MakeError("must be pointer to array type")
+					return nil, nil, utils.MakeErrorTrace(ctx, nil, "must be pointer to array type")
 				}
 				ptp = ptptp
 				exprs[0] = block.NewLoad(ptptp, exprs[0])
@@ -376,7 +376,7 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 		} else if ctx.DOT() != nil {
 			exprs, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx.PrimaryExpr())
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse accessor syntax")
 			} else if blocks != nil {
 				block = blocks[len(blocks)-1]
 			}
@@ -385,14 +385,14 @@ func (genCtx *GenContext) GeneratePrimaryExpr(block *ir.Block, ctx parser.IPrima
 				name := ctx.IDENTIFIER().GetText()
 				val, err := genCtx.LookupNameInModule(exprs[0].(*typesystem.GoModule).Name, name)
 				if err != nil {
-					return nil, nil, err
+					return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to resolve name %s in module %s", name, exprs[0].(*typesystem.GoModule).Name)
 				}
 				return []value.Value{val}, blocks, nil
 			}
 			// struct field accessor
 			vals, newBlocks, err := genCtx.GeneratePrimaryLValue(block, ctx)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse accessor")
 			}
 			// generate load
 			return []value.Value{
@@ -415,7 +415,7 @@ func (genCtx *GenContext) GenerateArguments(block *ir.Block, ctx parser.IArgumen
 	for _, expr := range ctx.ExpressionList().AllExpression() {
 		tval, newBlocks, err := genCtx.GenerateExpr(block, expr)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse arguments")
 		} else if newBlocks != nil {
 			blocks = append(blocks, newBlocks...)
 			block = blocks[len(blocks)-1]
@@ -445,18 +445,18 @@ func (genCtx *GenContext) GenerateOperand(block *ir.Block, ctx parser.IOperandCo
 		if funRef, err := genCtx.LookupFunc(operandName); err == nil {
 			return []value.Value{funRef}, nil, nil
 		}
-		return nil, nil, utils.MakeError("name %s not defined in this scope", operandName)
+		return nil, nil, utils.MakeErrorTrace(ctx, nil, "name %s not defined in this scope", operandName)
 	} else if ctx.Expression() != nil {
 		return genCtx.GenerateExpr(block, ctx.Expression())
 	}
-	return nil, nil, utils.MakeError("unmplemented operand")
+	return nil, nil, utils.MakeErrorTrace(ctx, nil, "unmplemented operand")
 }
 
 func (genCtx *GenContext) GenerateLiteralExpr(block *ir.Block, ctx parser.ILiteralContext) ([]value.Value, []*ir.Block, error) {
 	if ctx.BasicLit() != nil {
 		return genCtx.GenerateBasicLiteralExpr(block, ctx.BasicLit())
 	}
-	return nil, nil, utils.MakeError("unimplemented basic literal: %s", ctx.GetText())
+	return nil, nil, utils.MakeErrorTrace(ctx, nil, "unimplemented basic literal: %s", ctx.GetText())
 }
 
 func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.IBasicLitContext) ([]value.Value, []*ir.Block, error) {
@@ -465,13 +465,13 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 	} else if ctx.Integer() != nil {
 		val, err := constant.NewIntFromString(types.I32, ctx.Integer().GetText())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse basic integer literal expression")
 		}
 		return []value.Value{val}, nil, nil
 	} else if ctx.FLOAT_LIT() != nil {
 		val, err := constant.NewFloatFromString(types.Double, ctx.FLOAT_LIT().GetText())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse basic float literal expression")
 		}
 		return []value.Value{
 			typesystem.NewTypedValue(val, typesystem.Float64),
@@ -487,11 +487,10 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 	} else if ctx.String_() != nil {
 		strVal, err := strconv.Unquote(ctx.String_().GetText())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse basic string literal expression")
 		}
-		var glob *ir.Global
-		var ok bool
-		if glob, ok = genCtx.Consts[strVal]; !ok {
+		glob, ok := genCtx.Consts[strVal]
+		if !ok {
 			val := constant.NewCharArray(append([]byte(strVal), 0))
 			glob = genCtx.module.NewGlobalDef(fmt.Sprintf("str.%d", len(genCtx.Consts)), val)
 			genCtx.Consts[strVal] = glob
@@ -501,7 +500,7 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 			typesystem.NewTypedValue(addr, glob.Type()),
 		}, nil, nil
 	}
-	return nil, nil, utils.MakeError("not implemented basic lit: %s", ctx.GetText())
+	return nil, nil, utils.MakeErrorTrace(ctx, nil, "not implemented basic literal: %s", ctx.GetText())
 }
 
 func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpressionContext) ([]value.Value, []*ir.Block, error) {
@@ -510,7 +509,7 @@ func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpress
 	} else if ctx.MINUS() != nil {
 		vals, blocks, err := genCtx.GenerateExpr(block, ctx.Expression(0))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to generate unary expression")
 		} else if blocks != nil {
 			block = blocks[len(blocks)-1]
 		}
@@ -524,12 +523,12 @@ func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpress
 				block.NewFSub(constant.NewFloat(tp.(*types.FloatType), 0), vals[0]),
 			}, blocks, nil
 		} else {
-			return nil, nil, utils.MakeError("unsupported type for unary minus: %s", tp.String())
+			return nil, nil, utils.MakeErrorTrace(ctx, nil, "unsupported type for unary minus: %s", tp.String())
 		}
 	} else if ctx.EXCLAMATION() != nil {
 		vals, blocks, err := genCtx.GenerateExpr(block, ctx.Expression(0))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse unary expression")
 		} else if blocks != nil {
 			block = blocks[len(blocks)-1]
 		}
@@ -543,22 +542,22 @@ func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpress
 		// only taking address from variable
 		exprs, blocks, err := genCtx.GenerateLValue(block, ctx.Expression(0))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse unary expression")
 		}
 		return []value.Value{exprs[0]}, blocks, nil
 	} else if ctx.STAR() != nil {
 		lvals, blocks, err := genCtx.GenerateLValue(block, ctx.Expression(0))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse unary expression")
 		}
 		varRef := lvals[0]
 		ptrtp, ok := varRef.Type().(*types.PointerType)
 		if !ok {
-			return nil, nil, utils.MakeError("bad lvalue")
+			return nil, nil, utils.MakeErrorTrace(ctx, nil, "bad lvalue. Expected pointer type")
 		}
 		ptrtp2, ok := ptrtp.ElemType.(*types.PointerType)
 		if !ok {
-			return nil, nil, utils.MakeError("not pointer type dereference")
+			return nil, nil, utils.MakeErrorTrace(ctx, nil, "not pointer type dereference")
 		}
 		return []value.Value{
 			typesystem.NewTypedValue(
@@ -567,7 +566,7 @@ func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpress
 			),
 		}, blocks, nil
 	}
-	return nil, nil, utils.MakeError("unimplemented unary expression: %s", ctx.GetText())
+	return nil, nil, utils.MakeErrorTrace(ctx, nil, "unimplemented unary expression: %s", ctx.GetText())
 }
 
 func (genCtx *GenContext) GenerateMulExpr(block *ir.Block, left, right value.Value) ([]value.Value, []*ir.Block, error) {
@@ -657,7 +656,7 @@ func (genCtx *GenContext) GenerateSubExpr(block *ir.Block, left, right value.Val
 func (genCtx *GenContext) GenerateRelExpr(block *ir.Block, left, right value.Value, ctx parser.IExpressionContext) ([]value.Value, []*ir.Block, error) {
 	resType, ok := typesystem.CommonSupertype(left, right)
 	if !ok {
-		return nil, nil, utils.MakeError("failed to deduce common type for %v and %v", left.Type(), right.Type())
+		return nil, nil, utils.MakeErrorTrace(ctx, nil, "failed to deduce common type for %v and %v", left.Type(), right.Type())
 	}
 	if _, ok := resType.(*types.FloatType); ok {
 		var cmpPred enum.FPred

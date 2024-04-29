@@ -37,7 +37,7 @@ func (dm *deferManager) pushDeferCall(funRef *ir.Func, args []value.Value) {
 	}}, dm.deferStack...)
 }
 
-// must be called for main__init func
+// must be called from main__init func
 func (dm *deferManager) initDeferStack(module *ir.Module, block *ir.Block) {
 	tp := types.NewArray(deferStackLen, types.I8)
 	dm.stackDef = module.NewGlobal(deferStackName, tp)
@@ -48,6 +48,11 @@ func (dm *deferManager) initDeferStack(module *ir.Module, block *ir.Block) {
 	dm.stackSPDef.Init = constant.NewZeroInitializer(tp2)
 
 	block.NewStore(typesystem.NewTypedValue(dm.stackDef, tp2), dm.stackSPDef)
+}
+
+// must be called from main__cleanup func
+func (dm *deferManager) cleanupDeferStack(module *ir.Module, block *ir.Block) {
+	// pass
 }
 
 func (dm *deferManager) applyDefers(block *ir.Block) {

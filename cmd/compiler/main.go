@@ -32,7 +32,8 @@ func main() {
 	sourceFileContext := parser.SourceFile()
 	module, err := pipeline.ProcessTree(sourceFileContext)
 	if err != nil {
-		panic(err)
+		os.Stderr.WriteString(err.Error() + "\n")
+		os.Exit(-1)
 	}
 
 	module.WriteTo(os.Stdout)
