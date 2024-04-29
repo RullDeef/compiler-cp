@@ -61,10 +61,10 @@ func (m *typeManager) ParseAliasDecl(ctx parser.IAliasDeclContext) error {
 		return err
 	}
 	if _, ok := m.userAliases[name]; ok {
-		return utils.MakeError(fmt.Sprintf("type %s already defined as alias to primary type", name))
+		return utils.MakeErrorTrace(ctx, nil, fmt.Sprintf("type %s already defined as alias to primary type", name))
 	}
 	if _, ok := m.userStructs[name]; ok {
-		return utils.MakeError(fmt.Sprintf("type %s already defined as alias to struct type", name))
+		return utils.MakeErrorTrace(ctx, nil, fmt.Sprintf("type %s already defined as alias to struct type", name))
 	}
 	if stp, ok := tp.(*typesystem.StructInfo); ok {
 		m.userStructs[name] = stp
@@ -77,10 +77,10 @@ func (m *typeManager) ParseAliasDecl(ctx parser.IAliasDeclContext) error {
 func (m *typeManager) ParseTypeDef(ctx parser.ITypeDefContext) error {
 	name := ctx.IDENTIFIER().GetText()
 	if _, ok := m.userAliases[name]; ok {
-		return utils.MakeError(fmt.Sprintf("type %s already defined as alias to primary type", name))
+		return utils.MakeErrorTrace(ctx, nil, fmt.Sprintf("type %s already defined as alias to primary type", name))
 	}
 	if _, ok := m.userStructs[name]; ok {
-		return utils.MakeError(fmt.Sprintf("type %s already defined as alias to struct type", name))
+		return utils.MakeErrorTrace(ctx, nil, fmt.Sprintf("type %s already defined as alias to struct type", name))
 	}
 	// look ahead for recursive struct parsing
 	tmpInfo := &typesystem.StructInfo{}
@@ -128,7 +128,28 @@ func (m *typeManager) ParseType(ctx parser.IType_Context) (types.Type, error) {
 			return m.ParseStructType(tp)
 		}
 	}
-	return nil, utils.MakeError("failed to parse type: %s", ctx.GetText())
+	return nil, utils.MakeErrorTrace(ctx, nil, "failed to parse type: %s", ctx.GetText())
+}
+
+func (m *typeManager) ParseLiteralType(ctx parser.ILiteralTypeContext) (types.Type, error) {
+	if ctx.ELLIPSIS() != nil {
+		return nil, utils.MakeErrorTrace(ctx, nil, "array literals with ellipsis length not supported yet")
+	} else if ctx.MapType() != nil {
+		return nil, utils.MakeErrorTrace(ctx, nil, "maps not supported yet")
+	} else if ctx.StructType() != nil {
+		return m.ParseStructType(ctx.StructType())
+	} else if ctx.ArrayType() != nil {
+		return m.ParseArrayType(ctx.ArrayType())
+	} else if ctx.TypeName() != nil {
+		tpName := ctx.TypeName().GetText()
+		if stp, ok := m.userStructs[tpName]; ok {
+			return stp, nil
+		} else if atp, ok := m.userAliases[tpName]; ok {
+			return atp, nil
+		}
+		return nil, utils.MakeErrorTrace(ctx, nil, "unknown type name: %s", tpName)
+	}
+	return nil, utils.MakeErrorTrace(ctx, nil, "unimplemented literal type: %s", ctx.GetText())
 }
 
 func (m *typeManager) ParsePointerType(ctx parser.IPointerTypeContext) (types.Type, error) {
@@ -142,11 +163,11 @@ func (m *typeManager) ParsePointerType(ctx parser.IPointerTypeContext) (types.Ty
 func (m *typeManager) ParseArrayType(ctx parser.IArrayTypeContext) (types.Type, error) {
 	len, err := strconv.Atoi(ctx.ArrayLength().GetText())
 	if err != nil {
-		return nil, err
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse array type")
 	} else if len < 0 {
-		return nil, utils.MakeError("negative array length not allowed")
+		return nil, utils.MakeErrorTrace(ctx, nil, "negative array length not allowed")
 	} else if underlying, err := m.ParseType(ctx.ElementType().Type_()); err != nil {
-		return nil, err
+		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse array type")
 	} else {
 		return types.NewArray(uint64(len), underlying), nil
 	}
@@ -157,12 +178,12 @@ func (m *typeManager) ParseStructType(ctx parser.IStructTypeContext) (types.Type
 	offset := 0
 	for _, field := range ctx.AllFieldDecl() {
 		if field.EmbeddedField() != nil {
-			return nil, utils.MakeError("embedded fields not supported yet")
+			return nil, utils.MakeErrorTrace(ctx, nil, "embedded fields not supported yet")
 		}
 		for _, ident := range field.IdentifierList().AllIDENTIFIER() {
 			fieldType, err := m.ParseType(field.Type_())
 			if err != nil {
-				return nil, err
+				return nil, utils.MakeErrorTrace(ctx, err, "failed to parse struct type")
 			}
 			if stp, ok := fieldType.(*typesystem.StructInfo); ok {
 				fields = append(fields, typesystem.StructFieldInfo{

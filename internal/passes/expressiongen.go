@@ -5,7 +5,6 @@ import (
 	"gocomp/internal/parser"
 	"gocomp/internal/typesystem"
 	"gocomp/internal/utils"
-	"strconv"
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/llir/llvm/ir"
@@ -450,57 +449,6 @@ func (genCtx *GenContext) GenerateOperand(block *ir.Block, ctx parser.IOperandCo
 		return genCtx.GenerateExpr(block, ctx.Expression())
 	}
 	return nil, nil, utils.MakeErrorTrace(ctx, nil, "unmplemented operand")
-}
-
-func (genCtx *GenContext) GenerateLiteralExpr(block *ir.Block, ctx parser.ILiteralContext) ([]value.Value, []*ir.Block, error) {
-	if ctx.BasicLit() != nil {
-		return genCtx.GenerateBasicLiteralExpr(block, ctx.BasicLit())
-	}
-	return nil, nil, utils.MakeErrorTrace(ctx, nil, "unimplemented basic literal: %s", ctx.GetText())
-}
-
-func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.IBasicLitContext) ([]value.Value, []*ir.Block, error) {
-	if ctx.NIL_LIT() != nil {
-		return []value.Value{constant.NewNull(types.I32Ptr)}, nil, nil
-	} else if ctx.Integer() != nil {
-		val, err := constant.NewIntFromString(types.I32, ctx.Integer().GetText())
-		if err != nil {
-			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse basic integer literal expression")
-		}
-		return []value.Value{val}, nil, nil
-	} else if ctx.FLOAT_LIT() != nil {
-		val, err := constant.NewFloatFromString(types.Double, ctx.FLOAT_LIT().GetText())
-		if err != nil {
-			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse basic float literal expression")
-		}
-		return []value.Value{
-			typesystem.NewTypedValue(val, typesystem.Float64),
-		}, nil, nil
-	} else if ctx.FALSE_LIT() != nil {
-		return []value.Value{
-			typesystem.NewTypedValue(constant.False, typesystem.Bool),
-		}, nil, nil
-	} else if ctx.TRUE_LIT() != nil {
-		return []value.Value{
-			typesystem.NewTypedValue(constant.True, typesystem.Bool),
-		}, nil, nil
-	} else if ctx.String_() != nil {
-		strVal, err := strconv.Unquote(ctx.String_().GetText())
-		if err != nil {
-			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse basic string literal expression")
-		}
-		glob, ok := genCtx.Consts[strVal]
-		if !ok {
-			val := constant.NewCharArray(append([]byte(strVal), 0))
-			glob = genCtx.module.NewGlobalDef(fmt.Sprintf("str.%d", len(genCtx.Consts)), val)
-			genCtx.Consts[strVal] = glob
-		}
-		addr := constant.NewGetElementPtr(glob.ContentType, glob, constant.NewInt(types.I32, 0))
-		return []value.Value{
-			typesystem.NewTypedValue(addr, glob.Type()),
-		}, nil, nil
-	}
-	return nil, nil, utils.MakeErrorTrace(ctx, nil, "not implemented basic literal: %s", ctx.GetText())
 }
 
 func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpressionContext) ([]value.Value, []*ir.Block, error) {
