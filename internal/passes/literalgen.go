@@ -65,7 +65,7 @@ func (genCtx *GenContext) GenerateBasicLiteralExpr(block *ir.Block, ctx parser.I
 		}
 		addr := constant.NewGetElementPtr(glob.ContentType, glob, constant.NewInt(types.I32, 0))
 		return []value.Value{
-			typesystem.NewTypedValue(addr, glob.Type()),
+			typesystem.NewTypedValue(addr, types.I8Ptr),
 		}, nil, nil
 	}
 	return nil, nil, utils.MakeErrorTrace(ctx, nil, "not implemented basic literal: %s", ctx.GetText())
