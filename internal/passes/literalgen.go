@@ -138,6 +138,10 @@ func (genCtx *GenContext) GenerateStructLiteralValue(block *ir.Block, stp *types
 			off = len(keyedElems)
 			kelem.key = stp.Fields[off].Name
 		}
+		// TODO: fix this hack for nil values
+		if nilElem, ok := kelem.element.(*constant.Null); ok {
+			nilElem.Typ = stp.Fields[off].Primitive.(*types.PointerType)
+		}
 		block.NewStore(
 			kelem.element,
 			block.NewGetElementPtr(&stp.StructType, slitAddr, constant.NewInt(types.I32, 0), constant.NewInt(types.I32, int64(off))),
