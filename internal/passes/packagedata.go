@@ -114,9 +114,10 @@ func (v *PackageListener) EnterMethodDecl(ctx *parser.MethodDeclContext) {
 	if err != nil {
 		v.err = err
 		return
-	} else if rDecl.IdentifierList() != nil {
-		// fundec.Receiver.Name = rDecl.IdentifierList().IDENTIFIER(0).GetText()
 	}
+	// else if rDecl.IdentifierList() != nil {
+	// fundec.Receiver.Name = rDecl.IdentifierList().IDENTIFIER(0).GetText()
+	// }
 	// if _, ok := v.pdata.Methods[fundec.Receiver.Type]; !ok {
 	// 	v.pdata.Methods[fundec.Receiver.Type] = make(map[string]FunctionDecl)
 	// }

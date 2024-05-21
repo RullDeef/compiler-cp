@@ -111,7 +111,7 @@ func (v *CodeGenVisitor) buildCtorFunc(module *ir.Module, ctx parser.ISourceFile
 	return ctorFun, nil
 }
 
-func (v *CodeGenVisitor) buildDtorFunc(ctx parser.ISourceFileContext) (*ir.Func, error) {
+func (v *CodeGenVisitor) buildDtorFunc(_ parser.ISourceFileContext) (*ir.Func, error) {
 	dtorFun := ir.NewFunc(fmt.Sprintf("%s_cleanup", v.packageData.PackageName), types.Void)
 	globalInitBlocks := []*ir.Block{ir.NewBlock("entry")}
 

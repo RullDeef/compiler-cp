@@ -21,8 +21,6 @@ func (genCtx *GenContext) GenerateLValue(block *ir.Block, ctx parser.IExpression
 		vals, blocks, err := genCtx.GenerateExpr(block, ctx.Expression(0))
 		if err != nil {
 			return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to parse lvalue")
-		} else if blocks != nil {
-			block = blocks[len(blocks)-1]
 		}
 		ptrtp, ok := vals[0].Type().(*types.PointerType)
 		if !ok {
@@ -125,8 +123,6 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			vals, blocks, err := genCtx.GeneratePrimaryExpr(block, ctx)
 			if err != nil {
 				return nil, nil, err
-			} else if blocks != nil {
-				block = blocks[len(blocks)-1]
 			}
 			if _, ok := vals[0].Type().(*types.PointerType); !ok {
 				return nil, nil, utils.MakeErrorTrace(ctx, nil, "pointer type required for lvalue")
