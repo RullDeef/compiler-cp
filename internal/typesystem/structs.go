@@ -69,6 +69,18 @@ func (si *StructInfo) UpdateRecursiveRef(ref *StructInfo) {
 	}
 }
 
+func (si *StructInfo) Size() (int64, error) {
+	size := int64(0)
+	for _, field := range si.Fields {
+		s, err := field.Size()
+		if err != nil {
+			return 0, err
+		}
+		size += s
+	}
+	return size, nil
+}
+
 func (si *StructInfo) ComputeOffset(fieldName string) (int, types.Type, error) {
 	for _, field := range si.Fields {
 		if field.Name == fieldName {
@@ -80,4 +92,36 @@ func (si *StructInfo) ComputeOffset(fieldName string) (int, types.Type, error) {
 		}
 	}
 	return 0, nil, utils.MakeError(fmt.Sprintf("field %s not found in type %s", fieldName, si.TypeName))
+}
+
+func (sf *StructFieldInfo) Size() (int64, error) {
+	if sf.IsStruct {
+		return sf.Struct.Size()
+	} else {
+		return primitiveSize(sf.Primitive)
+	}
+}
+
+func primitiveSize(tp types.Type) (int64, error) {
+	if intg, ok := tp.(*types.IntType); ok {
+		return int64(intg.BitSize) / 8, nil
+	} else if flt, ok := tp.(*types.FloatType); ok {
+		switch flt.Kind {
+		// 32-bit floating-point type (IEEE 754 single precision).
+		case types.FloatKindFloat:
+			return 4, nil
+		// 64-bit floating-point type (IEEE 754 double precision).
+		case types.FloatKindDouble:
+			return 8, nil
+		}
+	} else if arr, ok := tp.(*types.ArrayType); ok {
+		elSize, err := primitiveSize(arr.ElemType)
+		if err != nil {
+			return 0, err
+		}
+		return int64(arr.Len) * elSize, nil
+	} else if _, ok := tp.(*types.PointerType); ok {
+		return 8, nil
+	}
+	return 0, utils.MakeError("cannot compute size of type %v", tp)
 }

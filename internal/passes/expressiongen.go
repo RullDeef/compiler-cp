@@ -85,6 +85,39 @@ func (genCtx *GenContext) GeneratePrimaryLValue(block *ir.Block, ctx parser.IPri
 			}
 		} else if ctx.Operand().L_PAREN() != nil {
 			return genCtx.GenerateLValue(block, ctx.Operand().Expression())
+		} else if ctx.Operand().Literal() != nil {
+			// check for literal syntax (dynamic allocation)
+			lit := ctx.Operand().Literal()
+			if lit != nil && lit.CompositeLit() != nil {
+				vals, blocks, err := genCtx.GenerateCompositeLiteralExpr(block, lit.CompositeLit())
+				if err != nil {
+					return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to generate dynamic object")
+				} else if blocks != nil {
+					block = blocks[len(blocks)-1]
+				}
+				// allocate storage for dynamic object
+				obj := vals[0]
+				objTp := obj.Type()
+				if tp, ok := objTp.(*typesystem.StructInfo); ok {
+					size, err := tp.Size()
+					if err != nil {
+						return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to compute struct size")
+					}
+					malloc, err := genCtx.LookupFunc("GC_malloc")
+					if err != nil {
+						return nil, nil, utils.MakeErrorTrace(ctx, err, "failed to lookup GC_malloc function")
+					}
+					memPtr := typesystem.NewTypedValue(
+						block.NewCall(malloc, constant.NewInt(types.I64, int64(size))),
+						types.NewPointer(tp),
+					)
+					block.NewStore(obj, memPtr)
+					return []value.Value{memPtr}, blocks, nil
+				} else if _, ok := objTp.(*types.ArrayType); ok {
+					return nil, nil, utils.MakeErrorTrace(ctx, nil, "dynamic arrays not supported yet")
+				}
+				return vals, blocks, nil
+			}
 		}
 	} else if ctx.PrimaryExpr() != nil {
 		if ctx.Arguments() != nil {
@@ -525,6 +558,8 @@ func (genCtx *GenContext) GenerateUnaryExpr(block *ir.Block, ctx parser.IExpress
 			),
 		}, blocks, nil
 	} else if ctx.AMPERSAND() != nil {
+		// check for dynamic allocation syntax
+
 		// only taking address from variable
 		exprs, blocks, err := genCtx.GenerateLValue(block, ctx.Expression(0))
 		if err != nil {

@@ -19,7 +19,7 @@ clean:
 $(CHK_TSTS): .test/%: tests/%/main.ll
 	@mkdir -p $(dir $@)
 	@echo "[[COMPILING TEST [llvm] $^]]"
-	@llc-18 $^ -o - | clang -o $@ -x assembler -
+	@llc-18 $^ -o - | clang -o $@ internal/gc/gc.c -x assembler -
 	@echo "[[RUNNING TEST $^]]"
 	@./$@ < $(dir $^)/in.txt | diff - $(dir $^)/out.txt
 
@@ -28,7 +28,7 @@ $(CHK_TSTS_LL): tests/%/main.ll: tests/%/main.go $(SRCS)
 	@cat $< | go run ./cmd/compiler | tee $(dir $<)/main.ll | opt-18 -S -o $(dir $<)/main-opt.ll
 
 prog.exe: prog.s
-	clang -o $@ $^
+	clang -o $@ internal/gc/gc.c $^
 
 prog.s: prog.ll
 	llc-18 $^

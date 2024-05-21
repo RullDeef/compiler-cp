@@ -54,6 +54,24 @@ func NewGenContext(pdata *PackageData) (*GenContext, error) {
 		ReturnTypes: []types.Type{types.I32},
 	}
 
+	// garbage-collector-related stuff
+	fun = ir.NewFunc("GC_init", types.I1)
+	fun.Type()
+	ctx.SpecialFuncs["GC_init"] = fun
+	ctx.SpecialFuncDecls["GC_init"] = &FunctionDecl{
+		Name:        "GC_init",
+		ReturnTypes: []types.Type{types.I1},
+	}
+
+	fun = ir.NewFunc("GC_malloc", types.I8Ptr, ir.NewParam("size", types.I64))
+	ctx.SpecialFuncs["GC_malloc"] = fun
+	ctx.SpecialFuncDecls["GC_malloc"] = &FunctionDecl{
+		Name:        "GC_malloc",
+		ArgNames:    []string{"size"},
+		ArgTypes:    []types.Type{types.I64},
+		ReturnTypes: []types.Type{types.I8Ptr},
+	}
+
 	// generate references to functions first
 	for _, fn := range pdata.Functions {
 		irFun, err := genFunDef(fn)

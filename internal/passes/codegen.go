@@ -87,6 +87,14 @@ func (v *CodeGenVisitor) buildCtorFunc(module *ir.Module, ctx parser.ISourceFile
 	// gather global declarations
 	ctorFun := ir.NewFunc(fmt.Sprintf("%s_init", v.packageData.PackageName), types.Void)
 	globalInitBlocks := []*ir.Block{ir.NewBlock("entry")}
+
+	// initialize GC
+	gcInitFun, err := v.genCtx.LookupFunc("GC_init")
+	if err != nil {
+		return nil, err
+	}
+	globalInitBlocks[0].NewCall(gcInitFun)
+
 	// initialize defer stack
 	v.deferManager.initDeferStack(module, globalInitBlocks[0])
 
