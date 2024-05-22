@@ -54,6 +54,12 @@ func (v *CodeGenVisitor) pushDeferCall(block *ir.Block, funRef *ir.Func, args []
 
 	v.deferCounter++
 
+	// function declaration for multiple return values support
+	funDecl, err := v.genCtx.LookupFuncDeclByIR(funRef)
+	if err != nil {
+		return utils.MakeError("function declaration for %s not found", funRef.String())
+	}
+
 	// create args struct definition
 	module := v.currentFuncIR.Parent
 	tpDefName := "__df_" + funRef.Name()
@@ -87,12 +93,18 @@ func (v *CodeGenVisitor) pushDeferCall(block *ir.Block, funRef *ir.Func, args []
 		wrapperFun = module.NewFunc(wrapperFunName, types.Void, ir.NewParam("args", types.I8Ptr))
 		// fill function body
 		entry := wrapperFun.NewBlock("entry")
-		if len(args) == 0 {
+		if args == nil && len(funDecl.ReturnTypes) <= 1 {
 			entry.NewCall(funRef)
 		} else {
 			argsStruct := entry.NewBitCast(wrapperFun.Params[0], types.NewPointer(tpDef))
 			// load real function arguments from passed struct (named args)
 			argValues := []value.Value{}
+			if len(funDecl.ReturnTypes) > 1 {
+				for _, argTp := range funDecl.ReturnTypes {
+					mem := entry.NewAlloca(argTp)
+					argValues = append(argValues, mem)
+				}
+			}
 			for i, arg := range args {
 				argValues = append(argValues, entry.NewLoad(
 					arg.Type(),
@@ -124,7 +136,7 @@ func (v *CodeGenVisitor) pushDeferCall(block *ir.Block, funRef *ir.Func, args []
 	)
 	block.NewStore(wrapperFun, node_FuncRef)
 
-	if args != nil {
+	if args != nil || funDecl.ReturnTypes != nil {
 		node_argsRef := block.NewGetElementPtr(
 			deferCallStackType,
 			nodeMem,
@@ -203,7 +215,7 @@ func (dm *CodeGenVisitor) applyDefers(block *ir.Block) []*ir.Block {
 	)
 	funcRef := loopBody.NewLoad(types.NewPointer(types.NewFunc(types.Void, types.I8Ptr)), funcOffset)
 
-	// TODO: load arguments struct
+	// load arguments struct
 	argsStruct := loopBody.NewLoad(
 		types.I8Ptr,
 		loopBody.NewGetElementPtr(
