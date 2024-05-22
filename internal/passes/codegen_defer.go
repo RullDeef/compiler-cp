@@ -1,53 +1,170 @@
 package passes
 
 import (
+	"fmt"
 	"gocomp/internal/parser"
-	"gocomp/internal/typesystem"
 	"gocomp/internal/utils"
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
+	"github.com/llir/llvm/ir/enum"
 	"github.com/llir/llvm/ir/types"
 	"github.com/llir/llvm/ir/value"
 )
 
-const deferSPName = ".deferSP"
-const deferStackName = ".deferStack"
-const deferStackLen = 1024
-
 type deferManager struct {
-	deferStack []deferCall
-	stackDef   *ir.Global
-	stackSPDef *ir.Global
+	deferStack        []*ir.InstAlloca
+	deferCounter      int // how many defer statements encountered so far in current function
+	deferApplyCounter int
 }
 
-type deferCall struct {
-	funRef *ir.Func
-	args   []value.Value
+// type used in LLVM IR code to keep track of defered calls
+var deferCallStackType = func() *types.StructType {
+	s := &types.StructType{
+		TypeName: "__deferCall",
+		Fields: []types.Type{
+			types.NewPointer(types.NewFunc(types.Void, types.I8Ptr)),
+			types.I8Ptr,
+		},
+	}
+	// reference to next stack node
+	s.Fields = append(s.Fields, &types.PointerType{ElemType: s})
+	return s
+}()
+var dfStackNodePtr = types.NewPointer(deferCallStackType)
+var deferCallStackTypeSize = 32 // more than enough
+
+func (dm *deferManager) setupDeferStack(block *ir.Block) {
+	callStack := block.NewAlloca(types.NewPointer(deferCallStackType))
+	block.NewStore(constant.NewNull(dfStackNodePtr), callStack)
+	dm.deferStack = append([]*ir.InstAlloca{callStack}, dm.deferStack...)
+	dm.deferCounter = 0
+	dm.deferApplyCounter = 0
 }
 
 func (dm *deferManager) clearDeferStack() {
-	dm.deferStack = nil
+	dm.deferStack = dm.deferStack[1:]
 }
 
-func (dm *deferManager) pushDeferCall(funRef *ir.Func, args []value.Value) {
-	dm.deferStack = append([]deferCall{{
-		funRef: funRef,
-		args:   args,
-	}}, dm.deferStack...)
+func (v *CodeGenVisitor) pushDeferCall(block *ir.Block, funRef *ir.Func, args []value.Value) error {
+	malloc, err := v.genCtx.LookupFunc("GC_malloc")
+	if err != nil {
+		return err
+	}
+
+	v.deferCounter++
+
+	// create args struct definition
+	module := v.currentFuncIR.Parent
+	tpDefName := "__df_" + funRef.Name()
+	var tpDef types.Type
+	for _, tpd := range module.TypeDefs {
+		if tpd.Name() == tpDefName {
+			tpDef = tpd
+			break
+		}
+	}
+	if tpDef == nil {
+		argTypes := []types.Type{}
+		for _, arg := range args {
+			argTypes = append(argTypes, arg.Type())
+		}
+		tpDef = types.NewStruct(argTypes...)
+		tpDef.SetName(tpDefName)
+		module.NewTypeDef(tpDefName, tpDef)
+	}
+
+	// create wrapper function
+	wrapperFunName := "__df_wrpr_" + funRef.Name()
+	var wrapperFun *ir.Func
+	for _, fn := range module.Funcs {
+		if fn.Name() == wrapperFunName {
+			wrapperFun = fn
+			break
+		}
+	}
+	if wrapperFun == nil {
+		wrapperFun = module.NewFunc(wrapperFunName, types.Void, ir.NewParam("args", types.I8Ptr))
+		// fill function body
+		entry := wrapperFun.NewBlock("entry")
+		if len(args) == 0 {
+			entry.NewCall(funRef)
+		} else {
+			argsStruct := entry.NewBitCast(wrapperFun.Params[0], types.NewPointer(tpDef))
+			// load real function arguments from passed struct (named args)
+			argValues := []value.Value{}
+			for i, arg := range args {
+				argValues = append(argValues, entry.NewLoad(
+					arg.Type(),
+					entry.NewGetElementPtr(
+						tpDef,
+						argsStruct,
+						constant.NewInt(types.I32, 0),
+						constant.NewInt(types.I32, int64(i)),
+					),
+				))
+			}
+			entry.NewCall(funRef, argValues...)
+		}
+		entry.NewRet(nil)
+	}
+
+	// create defer stack node
+	nodeMem := block.NewBitCast(
+		block.NewCall(malloc, constant.NewInt(types.I64, int64(deferCallStackTypeSize))),
+		dfStackNodePtr,
+	)
+
+	// update its fields
+	node_FuncRef := block.NewGetElementPtr(
+		deferCallStackType,
+		nodeMem,
+		constant.NewInt(types.I32, 0),
+		constant.NewInt(types.I32, 0),
+	)
+	block.NewStore(wrapperFun, node_FuncRef)
+
+	if args != nil {
+		node_argsRef := block.NewGetElementPtr(
+			deferCallStackType,
+			nodeMem,
+			constant.NewInt(types.I32, 0),
+			constant.NewInt(types.I32, 1),
+		)
+		// TODO: merge malloc calls
+		// TODO: calculate exact storage size needed
+		argsStructRaw := block.NewCall(malloc, constant.NewInt(types.I64, 32))
+		argsStruct := block.NewBitCast(argsStructRaw, types.NewPointer(tpDef))
+		// fill struct fields
+		for i, arg := range args {
+			offset := block.NewGetElementPtr(
+				tpDef,
+				argsStruct,
+				constant.NewInt(types.I32, 0),
+				constant.NewInt(types.I32, int64(i)),
+			)
+			block.NewStore(arg, offset)
+		}
+		block.NewStore(argsStructRaw, node_argsRef)
+	}
+
+	node_NextRef := block.NewGetElementPtr(
+		deferCallStackType,
+		nodeMem,
+		constant.NewInt(types.I32, 0),
+		constant.NewInt(types.I32, 2),
+	)
+	nextRef := block.NewLoad(dfStackNodePtr, v.deferStack[0])
+	block.NewStore(nextRef, node_NextRef)
+
+	// update local stack head
+	block.NewStore(nodeMem, v.deferStack[0])
+	return nil
 }
 
 // must be called from main__init func
 func (dm *deferManager) initDeferStack(module *ir.Module, block *ir.Block) {
-	tp := types.NewArray(deferStackLen, types.I8)
-	dm.stackDef = module.NewGlobal(deferStackName, tp)
-	dm.stackDef.Init = constant.NewZeroInitializer(tp)
-
-	tp2 := types.NewPointer(types.I8)
-	dm.stackSPDef = module.NewGlobal(deferSPName, tp2)
-	dm.stackSPDef.Init = constant.NewZeroInitializer(tp2)
-
-	block.NewStore(typesystem.NewTypedValue(dm.stackDef, tp2), dm.stackSPDef)
+	module.NewTypeDef("__deferCall", deferCallStackType)
 }
 
 // must be called from main__cleanup func
@@ -55,11 +172,62 @@ func (dm *deferManager) cleanupDeferStack(module *ir.Module, block *ir.Block) {
 	// pass
 }
 
-func (dm *deferManager) applyDefers(block *ir.Block) {
-	for _, dfs := range dm.deferStack {
-		block.NewCall(dfs.funRef, dfs.args...)
-		// block.NewI
+func (dm *CodeGenVisitor) applyDefers(block *ir.Block) []*ir.Block {
+	if dm.deferCounter == 0 {
+		// nothing to do - no waste of CPU cycles
+		return nil
 	}
+
+	// traverse defer stack list from head
+	loopStart := ir.NewBlock(fmt.Sprintf("__df_loop_start.%d", dm.deferApplyCounter))
+	loopBody := ir.NewBlock(fmt.Sprintf("__df_loop_body.%d", dm.deferApplyCounter))
+	loopEnd := ir.NewBlock(fmt.Sprintf("__df_loop_end.%d", dm.deferApplyCounter))
+	dm.deferApplyCounter++
+
+	block.NewBr(loopStart)
+
+	// check if stack is empty
+	nodeRef := loopStart.NewLoad(dfStackNodePtr, dm.deferStack[0])
+	cmpRes := loopStart.NewICmp(enum.IPredEQ, nodeRef, constant.NewNull(dfStackNodePtr))
+	loopStart.NewCondBr(cmpRes, loopEnd, loopBody)
+
+	// load stack head
+	nodeRef = loopBody.NewLoad(dfStackNodePtr, dm.deferStack[0])
+
+	// call defered function
+	funcOffset := loopBody.NewGetElementPtr(
+		deferCallStackType,
+		nodeRef,
+		constant.NewInt(types.I32, 0),
+		constant.NewInt(types.I32, 0),
+	)
+	funcRef := loopBody.NewLoad(types.NewPointer(types.NewFunc(types.Void, types.I8Ptr)), funcOffset)
+
+	// TODO: load arguments struct
+	argsStruct := loopBody.NewLoad(
+		types.I8Ptr,
+		loopBody.NewGetElementPtr(
+			deferCallStackType,
+			nodeRef,
+			constant.NewInt(types.I32, 0),
+			constant.NewInt(types.I32, 1),
+		),
+	)
+	loopBody.NewCall(funcRef, argsStruct)
+
+	// update head to next node
+	nextNodeRef := loopBody.NewGetElementPtr(
+		deferCallStackType,
+		nodeRef,
+		constant.NewInt(types.I32, 0),
+		constant.NewInt(types.I32, 2),
+	)
+	nextNode := loopBody.NewLoad(dfStackNodePtr, nextNodeRef)
+	loopBody.NewStore(nextNode, dm.deferStack[0])
+	// goto loop start
+	loopBody.NewBr(loopStart)
+
+	return []*ir.Block{loopStart, loopBody, loopEnd}
 }
 
 func (v *CodeGenVisitor) VisitDeferStmt(block *ir.Block, ctx parser.IDeferStmtContext) ([]*ir.Block, error) {
@@ -86,6 +254,9 @@ func (v *CodeGenVisitor) VisitDeferStmt(block *ir.Block, ctx parser.IDeferStmtCo
 	if err != nil {
 		return nil, err
 	}
-	v.deferManager.pushDeferCall(exprs[0].(*ir.Func), args)
+	err = v.pushDeferCall(block, exprs[0].(*ir.Func), args)
+	if err != nil {
+		return nil, err
+	}
 	return blocks, nil
 }

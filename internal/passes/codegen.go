@@ -224,9 +224,6 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 	v.genCtx.PushLexicalScope()
 	defer v.genCtx.PopLexicalScope()
 
-	// setup defer stack
-	defer v.clearDeferStack()
-
 	// populate function arguments
 	block := fun.NewBlock("entry")
 	for i, param := range fun.Params {
@@ -245,22 +242,31 @@ func (v *CodeGenVisitor) VisitFunctionDecl(ctx parser.IFunctionDeclContext) inte
 	v.labelManager.clearLabels()
 	defer v.labelManager.clearLabels()
 
+	// setup defer stack
+	defer v.clearDeferStack()
+	v.setupDeferStack(block)
+
 	// codegen body
 	bodyBlocks, err := v.VisitBlock(block, ctx.Block())
 	if err != nil {
 		return utils.MakeErrorTrace(ctx, err, "failed to parse body")
 	} else {
-		for _, block := range bodyBlocks {
-			block.Parent = fun
-		}
-		fun.Blocks = append(fun.Blocks, bodyBlocks...)
 		bodyBlocks = append([]*ir.Block{block}, bodyBlocks...)
 		if bodyBlocks[len(bodyBlocks)-1].Term == nil {
 			// add void return stmt
 			block = bodyBlocks[len(bodyBlocks)-1]
-			v.deferManager.applyDefers(block)
+			newBlocks := v.applyDefers(block)
+			if newBlocks != nil {
+				bodyBlocks = append(bodyBlocks, newBlocks...)
+				block = newBlocks[len(newBlocks)-1]
+			}
 			block.NewRet(nil)
 		}
+		for _, block := range bodyBlocks {
+			block.Parent = fun
+		}
+		//fun.Blocks = append(fun.Blocks, bodyBlocks...)
+		fun.Blocks = bodyBlocks
 		return v.labelManager.checkLabelsDefined()
 	}
 }
@@ -456,16 +462,19 @@ func (v *CodeGenVisitor) VisitShortVarDecl(block *ir.Block, ctx parser.IShortVar
 }
 
 func (v *CodeGenVisitor) VisitReturnStmt(block *ir.Block, ctx parser.IReturnStmtContext) ([]*ir.Block, error) {
-	// TODO: return multiple values from function
-	v.deferManager.applyDefers(block)
+	blocks := v.applyDefers(block)
+	if blocks != nil {
+		block = blocks[len(blocks)-1]
+	}
 	if ctx.ExpressionList() == nil {
 		block.NewRet(nil)
-		return nil, nil
+		return blocks, nil
 	}
 	vals, newBlocks, err := v.genCtx.GenerateExprList(block, ctx.ExpressionList())
 	if err != nil {
 		return nil, utils.MakeErrorTrace(ctx, err, "failed to parse return statement")
 	} else if newBlocks != nil {
+		blocks = append(blocks, newBlocks...)
 		block = newBlocks[len(newBlocks)-1]
 	}
 	// match return types of function with value types
@@ -483,5 +492,5 @@ func (v *CodeGenVisitor) VisitReturnStmt(block *ir.Block, ctx parser.IReturnStmt
 		}
 		block.NewRet(nil)
 	}
-	return newBlocks, nil
+	return blocks, nil
 }
